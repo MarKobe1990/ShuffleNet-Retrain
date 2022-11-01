@@ -15,6 +15,7 @@ import argparse
 from network import ShuffleNetV2_Plus
 from utils import accuracy, AvgrageMeter, CrossEntropyLabelSmooth, save_checkpoint, get_lastest_model, get_parameters
 
+
 class OpencvResize(object):
 
     def __init__(self, size=256):
@@ -22,16 +23,17 @@ class OpencvResize(object):
 
     def __call__(self, img):
         assert isinstance(img, PIL.Image.Image)
-        img = np.asarray(img) # (H,W,3) RGB
-        img = img[:,:,::-1] # 2 BGR
+        img = np.asarray(img)  # (H,W,3) RGB
+        img = img[:, :, ::-1]  # 2 BGR
         img = np.ascontiguousarray(img)
         H, W, _ = img.shape
-        target_size = (int(self.size/H * W + 0.5), self.size) if H < W else (self.size, int(self.size/W * H + 0.5))
+        target_size = (int(self.size / H * W + 0.5), self.size) if H < W else (self.size, int(self.size / W * H + 0.5))
         img = cv2.resize(img, target_size, interpolation=cv2.INTER_LINEAR)
-        img = img[:,:,::-1] # 2 RGB
+        img = img[:, :, ::-1]  # 2 RGB
         img = np.ascontiguousarray(img)
         img = Image.fromarray(img)
         return img
+
 
 class ToBGRTensor(object):
 
@@ -39,11 +41,12 @@ class ToBGRTensor(object):
         assert isinstance(img, (np.ndarray, PIL.Image.Image))
         if isinstance(img, PIL.Image.Image):
             img = np.asarray(img)
-        img = img[:,:,::-1] # 2 BGR
-        img = np.transpose(img, [2, 0, 1]) # 2 (3, H, W)
+        img = img[:, :, ::-1]  # 2 BGR
+        img = np.transpose(img, [2, 0, 1])  # 2 (3, H, W)
         img = np.ascontiguousarray(img)
         img = torch.from_numpy(img).float()
         return img
+
 
 class DataIterator(object):
 
@@ -77,7 +80,8 @@ def get_args():
     parser.add_argument('--val-interval', type=int, default=10000, help='val interval')
     parser.add_argument('--save-interval', type=int, default=10000, help='save interval')
 
-    parser.add_argument('--model-size', type=str, default='Large', choices=['Small', 'Medium', 'Large'], help='size of the model')
+    parser.add_argument('--model-size', type=str, default='Large', choices=['Small', 'Medium', 'Large'],
+                        help='size of the model')
 
     parser.add_argument('--train-dir', type=str, default='data/train', help='path to training dataset')
     parser.add_argument('--val-dir', type=str, default='data/val', help='path to validation dataset')
@@ -85,18 +89,20 @@ def get_args():
     args = parser.parse_args()
     return args
 
+
 def main():
     args = get_args()
 
     # Log
     log_format = '[%(asctime)s] %(message)s'
     logging.basicConfig(stream=sys.stdout, level=logging.INFO,
-        format=log_format, datefmt='%d %I:%M:%S')
+                        format=log_format, datefmt='%d %I:%M:%S')
     t = time.time()
     local_time = time.localtime(t)
     if not os.path.exists('./log'):
         os.mkdir('./log')
-    fh = logging.FileHandler(os.path.join('log/train-{}{:02}{}'.format(local_time.tm_year % 2000, local_time.tm_mon, t)))
+    fh = logging.FileHandler(
+        os.path.join('log/train-{}{:02}{}'.format(local_time.tm_year % 2000, local_time.tm_mon, t)))
     fh.setFormatter(logging.Formatter(log_format))
     logging.getLogger().addHandler(fh)
 
@@ -150,7 +156,9 @@ def main():
         device = torch.device("cpu")
 
     scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer,
-                    lambda step : (1.0-step/args.total_iters) if step <= args.total_iters else 0, last_epoch=-1)
+                                                  lambda step: (
+                                                              1.0 - step / args.total_iters) if step <= args.total_iters else 0,
+                                                  last_epoch=-1)
 
     model = model.to(device)
 
@@ -181,9 +189,10 @@ def main():
     while all_iters < args.total_iters:
         all_iters = train(model, device, args, val_interval=args.val_interval, bn_process=False, all_iters=all_iters)
         validate(model, device, args, all_iters=all_iters)
-    all_iters = train(model, device, args, val_interval=int(1280000/args.batch_size), bn_process=True, all_iters=all_iters)
+    all_iters = train(model, device, args, val_interval=int(1280000 / args.batch_size), bn_process=True,
+                      all_iters=all_iters)
     validate(model, device, args, all_iters=all_iters)
-    save_checkpoint({'state_dict': model.state_dict(),}, args.total_iters, tag='bnps-')
+    save_checkpoint({'state_dict': model.state_dict(), }, args.total_iters, tag='bnps-')
 
 
 def adjust_bn_momentum(model, iters):
@@ -191,8 +200,8 @@ def adjust_bn_momentum(model, iters):
         if isinstance(m, nn.BatchNorm2d):
             m.momentum = 1 / iters
 
-def train(model, device, args, *, val_interval, bn_process=False, all_iters=None):
 
+def train(model, device, args, *, val_interval, bn_process=False, all_iters=None):
     optimizer = args.optimizer
     loss_function = args.loss_function
     scheduler = args.scheduler
@@ -224,10 +233,12 @@ def train(model, device, args, *, val_interval, bn_process=False, all_iters=None
         Top5_err += 1 - prec5.item() / 100
 
         if all_iters % args.display_interval == 0:
-            printInfo = 'TRAIN Iter {}: lr = {:.6f},\tloss = {:.6f},\t'.format(all_iters, scheduler.get_lr()[0], loss.item()) + \
+            printInfo = 'TRAIN Iter {}: lr = {:.6f},\tloss = {:.6f},\t'.format(all_iters, scheduler.get_lr()[0],
+                                                                               loss.item()) + \
                         'Top-1 err = {:.6f},\t'.format(Top1_err / args.display_interval) + \
                         'Top-5 err = {:.6f},\t'.format(Top5_err / args.display_interval) + \
-                        'data_time = {:.6f},\ttrain_time = {:.6f}'.format(data_time, (time.time() - t1) / args.display_interval)
+                        'data_time = {:.6f},\ttrain_time = {:.6f}'.format(data_time,
+                                                                          (time.time() - t1) / args.display_interval)
             logging.info(printInfo)
             t1 = time.time()
             Top1_err, Top5_err = 0.0, 0.0
@@ -235,9 +246,10 @@ def train(model, device, args, *, val_interval, bn_process=False, all_iters=None
         if all_iters % args.save_interval == 0:
             save_checkpoint({
                 'state_dict': model.state_dict(),
-                }, all_iters)
+            }, all_iters)
 
     return all_iters
+
 
 def validate(model, device, args, *, all_iters=None):
     objs = AvgrageMeter()
@@ -249,7 +261,7 @@ def validate(model, device, args, *, all_iters=None):
 
     model.eval()
     max_val_iters = 250
-    t1  = time.time()
+    t1 = time.time()
     with torch.no_grad():
         for _ in range(1, max_val_iters + 1):
             data, target = val_dataprovider.next()
@@ -271,6 +283,7 @@ def validate(model, device, args, *, all_iters=None):
               'val_time = {:.6f}'.format(time.time() - t1)
     logging.info(logInfo)
 
+
 def load_checkpoint(net, checkpoint):
     from collections import OrderedDict
 
@@ -278,11 +291,11 @@ def load_checkpoint(net, checkpoint):
     if 'state_dict' in checkpoint:
         checkpoint = dict(checkpoint['state_dict'])
     for k in checkpoint:
-        k2 = 'module.'+k if not k.startswith('module.') else k
+        k2 = 'module.' + k if not k.startswith('module.') else k
         temp[k2] = checkpoint[k]
 
     net.load_state_dict(temp, strict=True)
 
+
 if __name__ == "__main__":
     main()
-
