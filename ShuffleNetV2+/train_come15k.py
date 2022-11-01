@@ -9,8 +9,12 @@ import time
 import logging
 import warnings
 import argparse
+
+from torchvision.transforms import transforms
+
 from network import ShuffleNetV2_Plus
 from COME15KClassDataset import set_data_loader
+from tqdm import tqdm
 from utils import accuracy, AvgrageMeter, CrossEntropyLabelSmooth, save_checkpoint, get_lastest_model, get_parameters
 
 warnings.filterwarnings("ignore")
@@ -50,87 +54,101 @@ def adjust_bn_momentum(model, iters):
             m.momentum = 1 / iters
 
 
-def train(model, device, args, *, val_interval, bn_process=False, all_iters=None):
+def train(model, device, args, epoch, bn_process=False, all_iters=None, total_iters=None):
     optimizer = args.optimizer
     loss_function = args.loss_function
     scheduler = args.scheduler
-    train_dataprovider = args.train_dataprovider
+    train_loader = args.train_loader
 
-    t1 = time.time()
-    Top1_err, Top5_err = 0.0, 0.0
+    Top1_err = 0.0
     model.train()
-    for iters in range(1, val_interval + 1):
+    pbar = tqdm(train_loader, desc='Epoch-train' + str(epoch), unit='batch')
+
+    for iters, (batched_inputs_img, batched_inputs_label) in enumerate(pbar):
+        pbar.set_description('Epoch-train:' + str(epoch))
         scheduler.step()
         if bn_process:
             adjust_bn_momentum(model, iters)
-
         all_iters += 1
         d_st = time.time()
-        data, target = train_dataprovider.next()
-        target = target.type(torch.LongTensor)
-        data, target = data.to(device), target.to(device)
+
+        batched_inputs_label = batched_inputs_label.type(torch.LongTensor)
+        batched_inputs_img, batched_inputs_label = batched_inputs_img.to(device), batched_inputs_label.to(device)
         data_time = time.time() - d_st
 
-        output = model(data)
-        loss = loss_function(output, target)
+        output = model(batched_inputs_img)
+        loss = loss_function(output, batched_inputs_label)
         optimizer.zero_grad()
         loss.backward()
         optimizer.step()
-        prec1, prec5 = accuracy(output, target, topk=(1, 5))
+        prec1 = accuracy(output, batched_inputs_label)
 
         Top1_err += 1 - prec1.item() / 100
-        Top5_err += 1 - prec5.item() / 100
 
         if all_iters % args.display_interval == 0:
             printInfo = 'TRAIN Iter {}: lr = {:.6f},\tloss = {:.6f},\t'.format(all_iters, scheduler.get_lr()[0],
                                                                                loss.item()) + \
                         'Top-1 err = {:.6f},\t'.format(Top1_err / args.display_interval) + \
-                        'Top-5 err = {:.6f},\t'.format(Top5_err / args.display_interval) + \
                         'data_time = {:.6f},\ttrain_time = {:.6f}'.format(data_time,
                                                                           (time.time() - t1) / args.display_interval)
             logging.info(printInfo)
             t1 = time.time()
             Top1_err, Top5_err = 0.0, 0.0
 
-        if all_iters % args.save_interval == 0:
-            save_checkpoint({
+        save_checkpoint({
                 'state_dict': model.state_dict(),
-            }, all_iters)
+            }, epoch)
 
     return all_iters
 
 
-def validate(model, device, args, *, all_iters=None):
-    objs = AvgrageMeter()
-    top1 = AvgrageMeter()
-    top5 = AvgrageMeter()
+def validate(model, device, args, epoch):
+    objs_easy = AvgrageMeter()
+    top1_easy = AvgrageMeter()
+
+    objs_hard = AvgrageMeter()
+    top1_hard = AvgrageMeter()
+
 
     loss_function = args.loss_function
-    val_dataprovider = args.val_dataprovider
-
+    val_loader_easy = args.val_loader_easy
+    val_loader_hard = args.val_loader_hard
+    pbar_easy = tqdm(val_loader_easy, desc='Epoch-val-easy' + str(epoch), unit='img')
+    pbar_hard = tqdm(val_loader_hard, desc='Epoch-val-hard' + str(epoch), unit='img')
     model.eval()
-    max_val_iters = 250
     t1 = time.time()
     with torch.no_grad():
-        for _ in range(1, max_val_iters + 1):
-            data, target = val_dataprovider.next()
+        for idx, (data, target) in enumerate(pbar_easy):
             target = target.type(torch.LongTensor)
             data, target = data.to(device), target.to(device)
-
             output = model(data)
             loss = loss_function(output, target)
-
-            prec1, prec5 = accuracy(output, target, topk=(1, 5))
+            prec1 = accuracy(output, target, topk=(1, ))
             n = data.size(0)
-            objs.update(loss.item(), n)
-            top1.update(prec1.item(), n)
-            top5.update(prec5.item(), n)
+            objs_easy.update(loss.item(), n)
+            top1_easy.update(prec1.item(), n)
 
-    logInfo = 'TEST Iter {}: loss = {:.6f},\t'.format(all_iters, objs.avg) + \
-              'Top-1 err = {:.6f},\t'.format(1 - top1.avg / 100) + \
-              'Top-5 err = {:.6f},\t'.format(1 - top5.avg / 100) + \
+
+        logInfo = 'val-easy Epoch {}: loss = {:.6f},\t'.format(epoch, objs_easy.avg) + \
+              'Top-1 err = {:.6f},\t'.format(1 - top1_easy.avg / 100) + \
               'val_time = {:.6f}'.format(time.time() - t1)
-    logging.info(logInfo)
+        logging.info(logInfo)
+
+        for idx, (data, target) in enumerate(pbar_hard):
+            target = target.type(torch.LongTensor)
+            data, target = data.to(device), target.to(device)
+            output = model(data)
+            loss = loss_function(output, target)
+            prec1 = accuracy(output, target, topk=(1,))
+            n = data.size(0)
+            objs_hard.update(loss.item(), n)
+            top1_hard.update(prec1.item(), n)
+
+        logInfo = 'val-easy Epoch {}: loss = {:.6f},\t'.format(epoch, objs_hard.avg) + \
+                  'Top-1 err = {:.6f},\t'.format(1 - top1_hard.avg / 100) + \
+                  'val_time = {:.6f}'.format(time.time() - t1)
+        logging.info(logInfo)
+
 
 
 def load_checkpoint(net, checkpoint):
@@ -168,9 +186,25 @@ def main():
 
     # data_loader
     assert os.path.exists(args.train_dir)
-    train_loader = set_data_loader(dataset_attr_word="train", batch_size=10, size=256, shuffle=True)
+    train_transforms_compose = transforms.Compose([
+        transforms.RandomResizedCrop(224),
+        transforms.RandomHorizontalFlip(0.5),
+        transforms.ToTensor(),
+        transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])  # RGB,imageNet1k mean and standard
+    ])
+    args.train_loader = set_data_loader(dataset_attr_word="train", batch_size=10, size=256, shuffle=True,
+                                        transforms_compose=train_transforms_compose)
     assert os.path.exists(args.val_dir)
-    train_loader = set_data_loader(dataset_attr_word="val_easy", batch_size=1, size=256, shuffle=True)
+    val_transforms_compose = transforms.Compose([
+        transforms.CenterCrop(224),
+        transforms.ToTensor(),
+        transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])  # RGB,imageNet1k mean and standard
+    ])
+
+    args.val_loader_easy = set_data_loader(dataset_attr_word="val_easy", batch_size=1, size=256, shuffle=False,
+                                      transforms_compose=val_transforms_compose)
+    args.val_loader_hard = set_data_loader(dataset_attr_word="val_hard", batch_size=1, size=256, shuffle=False,
+                                           transforms_compose=val_transforms_compose)
     print('load data successfully')
 
     # init model
@@ -192,13 +226,13 @@ def main():
                                 momentum=args.momentum,
                                 weight_decay=args.weight_decay)
 
-    criterion_smooth = CrossEntropyLabelSmooth(8, 0.1)
-
+    # criterion_smooth = CrossEntropyLabelSmooth(8, 0.1)
+    criterion = nn.CrossEntropyLoss()
     if use_gpu:
-        loss_function = criterion_smooth.cuda()
+        loss_function = criterion.cuda()
         device = torch.device("cuda")
     else:
-        loss_function = criterion_smooth
+        loss_function = criterion
         device = torch.device("cpu")
 
     scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer,
@@ -222,21 +256,13 @@ def main():
     args.optimizer = optimizer
     args.loss_function = loss_function
     args.scheduler = scheduler
+    total_iters = args.total_epoch * args.train_loader.__len__() / args.batch_size
+    for epoch in range(1, args.total_epoch + 1):
+        all_iters = train(model, device, args, epoch, bn_process=True, all_iters=all_iters, total_iters=total_iters)
 
-    if args.eval:
-        if args.eval_resume is not None:
-            checkpoint = torch.load(args.eval_resume, map_location=None if use_gpu else 'cpu')
-            load_checkpoint(model, checkpoint)
-        validate(model, device, args, all_iters=all_iters)
-        exit(0)
+        validate(model, device, args, epoch, all_iters=all_iters)
 
-    while all_iters < args.total_iters:
-        all_iters = train(model, device, args, val_interval=args.val_interval, bn_process=False, all_iters=all_iters)
-        validate(model, device, args, all_iters=all_iters)
-    all_iters = train(model, device, args, val_interval=int(1280000 / args.batch_size), bn_process=True,
-                      all_iters=all_iters)
-    validate(model, device, args, all_iters=all_iters)
-    save_checkpoint({'state_dict': model.state_dict(), }, args.total_iters, tag='bnps-')
+        save_checkpoint({'state_dict': model.state_dict(), }, args.total_epoch, tag='bnps-')
 
 
 def get_args():
@@ -244,7 +270,7 @@ def get_args():
     parser.add_argument('--eval', default=False, action='store_true')
     parser.add_argument('--eval-resume', type=str, default='./snet_detnas.pkl', help='path for eval model')
     parser.add_argument('--batch-size', type=int, default=10, help='batch size')
-    parser.add_argument('--total-iters', type=int, default=1000, help='total iters')
+    parser.add_argument('--total-epoch', type=int, default=100, help='total iters')
     parser.add_argument('--learning-rate', type=float, default=5e-5, help='init learning rate')
     parser.add_argument('--momentum', type=float, default=0.9, help='momentum')
     parser.add_argument('--weight-decay', type=float, default=4e-5, help='weight decay')
@@ -252,9 +278,9 @@ def get_args():
     parser.add_argument('--label-smooth', type=float, default=0.1, help='label smoothing')
 
     parser.add_argument('--auto-continue', type=bool, default=True, help='auto continue')
-    parser.add_argument('--display-interval', type=int, default=20, help='display interval')
-    parser.add_argument('--val-interval', type=int, default=800, help='val interval')
-    parser.add_argument('--save-interval', type=int, default=800, help='save interval')
+    parser.add_argument('--display-interval', type=int, default=200, help='display interval')
+    # parser.add_argument('--val-interval', type=int, default=800, help='val interval')
+    # parser.add_argument('--save-interval', type=int, default=800, help='save interval')
 
     parser.add_argument('--model-size', type=str, default='Large', choices=['Small', 'Medium', 'Large'],
                         help='size of the model')

@@ -73,7 +73,7 @@ class COME15KDataSet(Dataset):
         return len(self.images)
 
 
-def set_data_loader(dataset_attr_word, batch_size=10, size=256, shuffle=True):
+def set_data_loader(dataset_attr_word, batch_size=10, size=256, shuffle=True, transforms_compose=None):
     class_txt_path_dic = {
         "train": ['data_class_txt/train_classes.txt', 'data/SOD-SemanticDataset/train/'],
         "val_easy": ['data_class_txt/val_easy_classes.txt', 'data/SOD-SemanticDataset/test/COME15K-Easy/'],
@@ -81,17 +81,11 @@ def set_data_loader(dataset_attr_word, batch_size=10, size=256, shuffle=True):
         "test_easy": ['data_class_txt/test_easy_classes.txt', 'data/SOD-SemanticDataset/test/COME15K-Easy/'],
         "test_hard": ['data_class_txt/test_hard_classes.txt', 'data/SOD-SemanticDataset/test/COME15K-Hard/'],
     }
-    transforms_compose = transforms.Compose([
-        transforms.RandomResizedCrop(224),
-        # transforms.ColorJitter(brightness=0.4, contrast=0.4, saturation=0.4),
-        transforms.RandomHorizontalFlip(0.5),
-        transforms.ToTensor(),
-        transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])  # RGB,imageNet1k mean and standard
-    ])
     dataset_attr = class_txt_path_dic.get(dataset_attr_word)
     dataset = COME15KDataSet(txt_name=dataset_attr[0], data_path=dataset_attr[1], transform=transforms_compose,
                              size=size)
-    dataset_loader = DataLoader(dataset=dataset, batch_size=batch_size, shuffle=shuffle, num_workers=2, drop_last=True)
+    dataset_loader = DataLoader(dataset=dataset, batch_size=batch_size, shuffle=shuffle, num_workers=2, drop_last=True,
+                                pin_memory=True)
     return dataset_loader
 
 
