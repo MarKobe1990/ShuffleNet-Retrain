@@ -75,11 +75,11 @@ class COME15KDataSet(Dataset):
 
 def set_data_loader(dataset_attr_word, batch_size=10, size=256, shuffle=True):
     class_txt_path_dic = {
-        "train": ['data/SOD-SemanticDataset/train_classes.txt', 'data/SOD-SemanticDataset/train/'],
-        "val_easy": ['data/SOD-SemanticDataset/val_easy_classes.txt', 'data/SOD-SemanticDataset/test/COME15K-Easy/'],
-        "val_hard": ['data/SOD-SemanticDataset/val_hard_classes.txt', 'data/SOD-SemanticDataset/test/COME15K-Hard/'],
-        "test_easy": ['data/SOD-SemanticDataset/test_easy_classes.txt', 'data/SOD-SemanticDataset/test/COME15K-Easy/'],
-        "test_hard": ['data/SOD-SemanticDataset/test_hard_classes.txt', 'data/SOD-SemanticDataset/test/COME15K-Hard/'],
+        "train": ['data_class_txt/train_classes.txt', 'data/SOD-SemanticDataset/train/'],
+        "val_easy": ['data_class_txt/val_easy_classes.txt', 'data/SOD-SemanticDataset/test/COME15K-Easy/'],
+        "val_hard": ['data_class_txt/val_hard_classes.txt', 'data/SOD-SemanticDataset/test/COME15K-Hard/'],
+        "test_easy": ['data_class_txt/test_easy_classes.txt', 'data/SOD-SemanticDataset/test/COME15K-Easy/'],
+        "test_hard": ['data_class_txt/test_hard_classes.txt', 'data/SOD-SemanticDataset/test/COME15K-Hard/'],
     }
     transforms_compose = transforms.Compose([
         transforms.RandomResizedCrop(224),

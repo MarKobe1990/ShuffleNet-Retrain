@@ -1,11 +1,7 @@
 import os
 import sys
 import torch
-import argparse
 import torch.nn as nn
-import torchvision.transforms as transforms
-import torchvision.datasets as datasets
-import cv2
 import numpy as np
 import PIL
 from PIL import Image
@@ -14,10 +10,10 @@ import logging
 import warnings
 import argparse
 from network import ShuffleNetV2_Plus
+from COME15KClassDataset import set_data_loader
 from utils import accuracy, AvgrageMeter, CrossEntropyLabelSmooth, save_checkpoint, get_lastest_model, get_parameters
+
 warnings.filterwarnings("ignore")
-
-
 
 
 class ToBGRTensor(object):
@@ -46,118 +42,6 @@ class DataIterator(object):
             self.iterator = enumerate(self.dataloader)
             _, data = next(self.iterator)
         return data[0], data[1]
-
-
-def get_args():
-    parser = argparse.ArgumentParser("ShuffleNetV2_Plus")
-    parser.add_argument('--eval', default=False, action='store_true')
-    parser.add_argument('--eval-resume', type=str, default='./snet_detnas.pkl', help='path for eval model')
-    parser.add_argument('--batch-size', type=int, default=1024, help='batch size')
-    parser.add_argument('--total-iters', type=int, default=450000, help='total iters')
-    parser.add_argument('--learning-rate', type=float, default=0.5, help='init learning rate')
-    parser.add_argument('--momentum', type=float, default=0.9, help='momentum')
-    parser.add_argument('--weight-decay', type=float, default=4e-5, help='weight decay')
-    parser.add_argument('--save', type=str, default='./models', help='path for saving trained models')
-    parser.add_argument('--label-smooth', type=float, default=0.1, help='label smoothing')
-
-    parser.add_argument('--auto-continue', type=bool, default=True, help='auto continue')
-    parser.add_argument('--display-interval', type=int, default=20, help='display interval')
-    parser.add_argument('--val-interval', type=int, default=10000, help='val interval')
-    parser.add_argument('--save-interval', type=int, default=10000, help='save interval')
-
-    parser.add_argument('--model-size', type=str, default='Large', choices=['Small', 'Medium', 'Large'],
-                        help='size of the model')
-
-    parser.add_argument('--train-dir', type=str, default='data/train', help='path to training dataset')
-    parser.add_argument('--val-dir', type=str, default='data/val', help='path to validation dataset')
-
-    args = parser.parse_args()
-    return args
-
-
-
-def main():
-    args = get_args()
-
-    # Log
-    log_format = '[%(asctime)s] %(message)s'
-    logging.basicConfig(stream=sys.stdout, level=logging.INFO,
-                        format=log_format, datefmt='%d %I:%M:%S')
-    t = time.time()
-    local_time = time.localtime(t)
-    if not os.path.exists('./log'):
-        os.mkdir('./log')
-    fh = logging.FileHandler(
-        os.path.join('log/train-{}{:02}{}'.format(local_time.tm_year % 2000, local_time.tm_mon, t)))
-    fh.setFormatter(logging.Formatter(log_format))
-    logging.getLogger().addHandler(fh)
-
-    use_gpu = False
-    if torch.cuda.is_available():
-        use_gpu = True
-
-    assert os.path.exists(args.train_dir)
-
-
-
-    assert os.path.exists(args.val_dir)
-
-    print('load data successfully')
-
-    architecture = [0, 0, 3, 1, 1, 1, 0, 0, 2, 0, 2, 1, 1, 0, 2, 0, 2, 1, 3, 2]
-    model = ShuffleNetV2_Plus(architecture=architecture, model_size=args.model_size)
-
-    optimizer = torch.optim.SGD(get_parameters(model),
-                                lr=args.learning_rate,
-                                momentum=args.momentum,
-                                weight_decay=args.weight_decay)
-    criterion_smooth = CrossEntropyLabelSmooth(8, 0.1)
-
-    if use_gpu:
-        loss_function = criterion_smooth.cuda()
-        device = torch.device("cuda")
-    else:
-        loss_function = criterion_smooth
-        device = torch.device("cpu")
-
-    scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer,
-                                                  lambda step: (
-                                                              1.0 - step / args.total_iters) if step <= args.total_iters else 0,
-                                                  last_epoch=-1)
-
-    model = model.to(device)
-
-    all_iters = 0
-    if args.auto_continue:
-        lastest_model, iters = get_lastest_model()
-        if lastest_model is not None:
-            all_iters = iters
-            checkpoint = torch.load(lastest_model, map_location=None if use_gpu else 'cpu')
-            model.load_state_dict(checkpoint['state_dict'], strict=True)
-            print('load from checkpoint')
-            for i in range(iters):
-                scheduler.step()
-
-    args.optimizer = optimizer
-    args.loss_function = loss_function
-    args.scheduler = scheduler
-    args.train_dataprovider = train_dataprovider
-    args.val_dataprovider = val_dataprovider
-
-    if args.eval:
-        if args.eval_resume is not None:
-            checkpoint = torch.load(args.eval_resume, map_location=None if use_gpu else 'cpu')
-            load_checkpoint(model, checkpoint)
-            validate(model, device, args, all_iters=all_iters)
-        exit(0)
-
-    while all_iters < args.total_iters:
-        all_iters = train(model, device, args, val_interval=args.val_interval, bn_process=False, all_iters=all_iters)
-        validate(model, device, args, all_iters=all_iters)
-    all_iters = train(model, device, args, val_interval=int(1280000 / args.batch_size), bn_process=True,
-                      all_iters=all_iters)
-    validate(model, device, args, all_iters=all_iters)
-    save_checkpoint({'state_dict': model.state_dict(), }, args.total_iters, tag='bnps-')
 
 
 def adjust_bn_momentum(model, iters):
@@ -260,6 +144,128 @@ def load_checkpoint(net, checkpoint):
         temp[k2] = checkpoint[k]
 
     net.load_state_dict(temp, strict=True)
+
+
+def main():
+    args = get_args()
+
+    # Log
+    log_format = '[%(asctime)s] %(message)s'
+    logging.basicConfig(stream=sys.stdout, level=logging.INFO,
+                        format=log_format, datefmt='%d %I:%M:%S')
+    t = time.time()
+    local_time = time.localtime(t)
+    if not os.path.exists('./log'):
+        os.mkdir('./log')
+    fh = logging.FileHandler(
+        os.path.join('log/train-{}{:02}{}'.format(local_time.tm_year % 2000, local_time.tm_mon, t)))
+    fh.setFormatter(logging.Formatter(log_format))
+    logging.getLogger().addHandler(fh)
+
+    use_gpu = False
+    if torch.cuda.is_available():
+        use_gpu = True
+
+    # data_loader
+    assert os.path.exists(args.train_dir)
+    train_loader = set_data_loader(dataset_attr_word="train", batch_size=10, size=256, shuffle=True)
+    assert os.path.exists(args.val_dir)
+    train_loader = set_data_loader(dataset_attr_word="val_easy", batch_size=1, size=256, shuffle=True)
+    print('load data successfully')
+
+    # init model
+    architecture = [0, 0, 3, 1, 1, 1, 0, 0, 2, 0, 2, 1, 1, 0, 2, 0, 2, 1, 3, 2]
+    model = ShuffleNetV2_Plus(architecture=architecture, model_size=args.model_size)
+    pre_train_model_weight_dic = {
+        'Small': 'shuffle_net_v2_plus_image1K_pretrianed_weight/ShuffleNetV2+.ImageNet1k_pre_trained_Small.pth.tar',
+        'Medium': 'shuffle_net_v2_plus_image1K_pretrianed_weight/ShuffleNetV2+.ImageNet1k_pre_trained_Medium.pth.tar',
+        'Large': 'shuffle_net_v2_plus_image1K_pretrianed_weight/ShuffleNetV2+.ImageNet1k_pre_trained_Large.pth.tar'
+    }
+
+    if args.fine_tune:
+        pre_train_weight = torch.load(pre_train_model_weight_dic[args.model_size])
+        model.load_state_dict(pre_train_weight)
+
+    # 更新器
+    optimizer = torch.optim.SGD(get_parameters(model),
+                                lr=args.learning_rate,
+                                momentum=args.momentum,
+                                weight_decay=args.weight_decay)
+
+    criterion_smooth = CrossEntropyLabelSmooth(8, 0.1)
+
+    if use_gpu:
+        loss_function = criterion_smooth.cuda()
+        device = torch.device("cuda")
+    else:
+        loss_function = criterion_smooth
+        device = torch.device("cpu")
+
+    scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer,
+                                                  lambda step: (
+                                                          1.0 - step / args.total_iters) if step <= args.total_iters else 0,
+                                                  last_epoch=-1)
+
+    model = model.to(device)
+
+    all_iters = 0
+    if args.auto_continue:
+        lastest_model, iters = get_lastest_model()
+        if lastest_model is not None:
+            all_iters = iters
+            checkpoint = torch.load(lastest_model, map_location=None if use_gpu else 'cpu')
+            model.load_state_dict(checkpoint['state_dict'], strict=True)
+            print('load from checkpoint')
+            for i in range(iters):
+                scheduler.step()
+
+    args.optimizer = optimizer
+    args.loss_function = loss_function
+    args.scheduler = scheduler
+
+    if args.eval:
+        if args.eval_resume is not None:
+            checkpoint = torch.load(args.eval_resume, map_location=None if use_gpu else 'cpu')
+            load_checkpoint(model, checkpoint)
+        validate(model, device, args, all_iters=all_iters)
+        exit(0)
+
+    while all_iters < args.total_iters:
+        all_iters = train(model, device, args, val_interval=args.val_interval, bn_process=False, all_iters=all_iters)
+        validate(model, device, args, all_iters=all_iters)
+    all_iters = train(model, device, args, val_interval=int(1280000 / args.batch_size), bn_process=True,
+                      all_iters=all_iters)
+    validate(model, device, args, all_iters=all_iters)
+    save_checkpoint({'state_dict': model.state_dict(), }, args.total_iters, tag='bnps-')
+
+
+def get_args():
+    parser = argparse.ArgumentParser("ShuffleNetV2_Plus")
+    parser.add_argument('--eval', default=False, action='store_true')
+    parser.add_argument('--eval-resume', type=str, default='./snet_detnas.pkl', help='path for eval model')
+    parser.add_argument('--batch-size', type=int, default=10, help='batch size')
+    parser.add_argument('--total-iters', type=int, default=1000, help='total iters')
+    parser.add_argument('--learning-rate', type=float, default=5e-5, help='init learning rate')
+    parser.add_argument('--momentum', type=float, default=0.9, help='momentum')
+    parser.add_argument('--weight-decay', type=float, default=4e-5, help='weight decay')
+    parser.add_argument('--save', type=str, default='./models', help='path for saving trained models')
+    parser.add_argument('--label-smooth', type=float, default=0.1, help='label smoothing')
+
+    parser.add_argument('--auto-continue', type=bool, default=True, help='auto continue')
+    parser.add_argument('--display-interval', type=int, default=20, help='display interval')
+    parser.add_argument('--val-interval', type=int, default=800, help='val interval')
+    parser.add_argument('--save-interval', type=int, default=800, help='save interval')
+
+    parser.add_argument('--model-size', type=str, default='Large', choices=['Small', 'Medium', 'Large'],
+                        help='size of the model')
+    parser.add_argument('--train-dir', type=str, default='data/SOD-SemanticDataset/train',
+                        help='path to training dataset')
+    parser.add_argument('--val-dir', type=str, default='data/SOD-SemanticDataset/train/val',
+                        help='path to validation dataset')
+    parser.add_argument('--fine-tune', type=bool, default=True, help='load pretrain weight at start')
+
+    args = parser.parse_args()
+    return args
 
 
 if __name__ == "__main__":
