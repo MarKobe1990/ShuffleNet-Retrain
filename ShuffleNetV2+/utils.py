@@ -53,10 +53,10 @@ def accuracy(output, target, topk=(1,)):
     return res
 
 
-def save_checkpoint(state, epoch, tag=''):
-    if not os.path.exists("./models"):
-        os.makedirs("./models")
-    filename = os.path.join("./models/{}checkpoint-{:06}.pth.tar".format(tag, epoch))
+def save_checkpoint(path, state, epoch, tag='', model_size = ''):
+    if not os.path.exists(path):
+        os.makedirs(path)
+    filename = os.path.join(path + "/{}checkpoint-{:06}-{}.pth.tar".format(tag, epoch, model_size))
     torch.save(state, filename)
 
 
