@@ -241,7 +241,7 @@ def copy_state_dict(state_dict):
 
 def main():
     args = get_args()
-    date_str = datetime.datetime.now().strftime('%Y-%m-%d-%H:%M')
+    date_str = datetime.datetime.now().strftime('%Y-%m-%d-%H%M')
     args.save = args.save + '/' + date_str + '_max_epoch_' + str(args.total_epoch)
     # Log
     log_format = '[%(asctime)s] %(message)s'
@@ -369,7 +369,7 @@ def get_args():
     parser.add_argument('--label_smooth', type=float, default=0.1, help='label smoothing')
 
     parser.add_argument('--auto_continue', type=bool, default=False, help='auto continue')
-    parser.add_argument('--model_size', type=str, default='Large', choices=['Small', 'Medium', 'Large'],
+    parser.add_argument('--model_size', type=str, default='Medium', choices=['Small', 'Medium', 'Large'],
                         help='size of the model')
     parser.add_argument('--train_dir', type=str, default='data/SOD-SemanticDataset/train',
                         help='path to training dataset')
