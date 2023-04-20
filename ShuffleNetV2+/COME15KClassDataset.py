@@ -54,14 +54,15 @@ class COME15KDataSet(Dataset):
         self.images = images
         self.labels = labels
         self.transform = transform
-        self.read_img = OpenCVResize(size=size)
+        # self.read_img = OpenCVResize(size=size)
         self.data_path = data_path
 
     # 重写这个函数用来进行图像数据的读取
     def __getitem__(self, item):
         # 获取图像名和标签
         image = self.images[item]
-        image = self.read_img(Image.open(self.data_path + image))
+        # image = self.read_img(Image.open(self.data_path + image))
+        image = Image.open(self.data_path + image)
         label = self.labels[item]
         # 处理图像数据
         if self.transform is not None:

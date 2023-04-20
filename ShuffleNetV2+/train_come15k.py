@@ -17,7 +17,7 @@ from tensorboardX import SummaryWriter
 from torchvision.transforms import transforms
 
 from network import ShuffleNetV2_Plus
-from COME15KClassDataset import set_data_loader
+from COME15KClassDataset import set_data_loader, OpenCVResize
 from tqdm import tqdm
 from utils import accuracy, AvgrageMeter, CrossEntropyLabelSmooth, save_checkpoint, get_lastest_model, get_parameters
 
@@ -264,6 +264,7 @@ def main():
     assert os.path.exists(args.train_dir)
     train_transforms_compose = transforms.Compose([
         transforms.RandomResizedCrop(224),
+        transforms.ColorJitter(brightness=0.4, contrast=0.4, saturation=0.4),
         transforms.RandomHorizontalFlip(0.5),
         transforms.ToTensor(),
         transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])  # RGB,imageNet1k mean and standard
@@ -272,6 +273,7 @@ def main():
                                         transforms_compose=train_transforms_compose)
     assert os.path.exists(args.val_dir)
     val_transforms_compose = transforms.Compose([
+        OpenCVResize(256),
         transforms.CenterCrop(224),
         transforms.ToTensor(),
         transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])  # RGB,imageNet1k mean and standard
@@ -285,7 +287,8 @@ def main():
 
     # init model
     architecture = [0, 0, 3, 1, 1, 1, 0, 0, 2, 0, 2, 1, 1, 0, 2, 0, 2, 1, 3, 2]
-    model = ShuffleNetV2_Plus(architecture=architecture, model_size=args.model_size)
+    class_names = ['covering', 'device', 'domestic_animal', 'mater', 'person', 'plant', 'structure', 'vertebrate']
+    model = ShuffleNetV2_Plus(architecture=architecture, n_class=class_names.__len__(), model_size=args.model_size)
     pre_train_model_weight_dic = {
         'Small': 'shuffle_net_v2_plus_image1K_pretrianed_weight/ShuffleNetV2+.ImageNet1k_pre_trained_Small.pth.tar',
         'Medium': 'shuffle_net_v2_plus_image1K_pretrianed_weight/ShuffleNetV2+.ImageNet1k_pre_trained_Medium.pth.tar',
@@ -305,15 +308,17 @@ def main():
         state_dict = new_dict
         model.load_state_dict(state_dict, strict=False)
 
-    class_names = ['covering', 'device', 'domestic_animal', 'mater', 'person', 'plant', 'structure', 'vertebrate']
     # 更新器
-    optimizer = torch.optim.SGD(get_parameters(model),
-                                lr=args.learning_rate,
-                                momentum=args.momentum,
-                                weight_decay=args.weight_decay)
+    # optimizer = torch.optim.SGD(get_parameters(model),
+    #                             lr=args.learning_rate,
+    #                             momentum=args.momentum,
+    #                             weight_decay=args.weight_decay)
+
+    optimizer = torch.optim.Adam(get_parameters(model), lr=args.learning_rate, betas=(0.9, 0.999), eps=1e-08, weight_decay=0, amsgrad=False)
 
     # criterion_smooth = CrossEntropyLabelSmooth(8, 0.1)
-    criterion = nn.CrossEntropyLoss()
+    criterion = CrossEntropyLabelSmooth(class_names.__len__(), args.label_smooth)
+    # criterion = nn.CrossEntropyLoss()
     if use_gpu:
         loss_function = criterion.cuda()
         device = torch.device("cuda")
@@ -361,15 +366,14 @@ def get_args():
     parser.add_argument('--eval', default=False, action='store_true')
     parser.add_argument('--eval_resume', type=str, default='./snet_detnas.pkl', help='path for eval model')
     parser.add_argument('--batch_size', type=int, default=10, help='batch size')
-    parser.add_argument('--total_epoch', type=int, default=200, help='total epoch')
-    parser.add_argument('--learning_rate', type=float, default=1.0, help='init learning rate')
+    parser.add_argument('--total_epoch', type=int, default=100, help='total epoch')
+    parser.add_argument('--learning_rate', type=float, default=0.001, help='init learning rate')
     parser.add_argument('--momentum', type=float, default=0.9, help='momentum')
     parser.add_argument('--weight_decay', type=float, default=4e-5, help='weight decay')
     parser.add_argument('--save', type=str, default='./models', help='path for saving trained models')
     parser.add_argument('--label_smooth', type=float, default=0.1, help='label smoothing')
-
     parser.add_argument('--auto_continue', type=bool, default=False, help='auto continue')
-    parser.add_argument('--model_size', type=str, default='Large', choices=['Small', 'Medium', 'Large'],
+    parser.add_argument('--model_size', type=str, default='Medium', choices=['Small', 'Medium', 'Large'],
                         help='size of the model')
     parser.add_argument('--train_dir', type=str, default='data/SOD-SemanticDataset/train',
                         help='path to training dataset')
