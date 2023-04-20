@@ -241,7 +241,7 @@ def copy_state_dict(state_dict):
 
 def main():
     args = get_args()
-    date_str = datetime.datetime.now().strftime('%Y-%m-%d-%H:%M')
+    date_str = datetime.datetime.now().strftime('%Y-%m-%d-%H%M')
     args.save = args.save + '/' + date_str + '_max_epoch_' + str(args.total_epoch)
     # Log
     log_format = '[%(asctime)s] %(message)s'
