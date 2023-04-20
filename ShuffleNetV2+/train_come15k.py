@@ -12,7 +12,7 @@ import time
 import logging
 import warnings
 import argparse
-
+from collections import OrderedDict
 from tensorboardX import SummaryWriter
 from torchvision.transforms import transforms
 
@@ -89,12 +89,12 @@ def train(model, device, args, epoch, writer, bn_process=False, all_iters=None, 
                                                                     train_time / iters)
     logging.info(printInfo)
     print(printInfo)
-
-    hyer_params_dic = {
-        "lr": scheduler.get_lr()[0],
-        "epoch": epoch
-    }
+    hyer_params_dic = args.__dict__
+    # hyer_params_dic = {
+    #     "epoch_total": args.total_epoch
+    # }
     result_dic = {
+        "lr": scheduler.get_lr()[0],
         "loss": loss.item(),
         "top-1-error": Top1_err / iters,
         "top-2-error": Top2_err / iters,
@@ -148,11 +148,9 @@ def validate_easy(model, device, args, epoch, writer):
                   'val_time = {:.6f}\n'.format(time.time() - t1)
         print(logInfo)
         logging.info(logInfo)
-
-        hyer_params_dic = {
-            "epoch": epoch
-        }
+        hyer_params_dic = args.__dict__
         result_dic = {
+            "epoch": epoch,
             "loss": loss.item(),
             "top-1-error": (1 - top1_easy.avg / 100),
             "top-2-error": (1 - top2_easy.avg / 100),
@@ -200,10 +198,9 @@ def validate_hard(model, device, args, epoch, writer):
                   'val_time = {:.6f}\n'.format(time.time() - t1)
         print(logInfo)
         logging.info(logInfo)
-        hyer_params_dic = {
-            "epoch": epoch
-        }
+        hyer_params_dic = args.__dict__
         result_dic = {
+            "epoch": epoch,
             "loss": loss.item(),
             "top-1-error": (1 - top1_hard.avg / 100),
             "top-2-error": (1 - top2_hard.avg / 100),
@@ -214,8 +211,6 @@ def validate_hard(model, device, args, epoch, writer):
 
 
 def load_checkpoint(net, checkpoint):
-    from collections import OrderedDict
-
     temp = OrderedDict()
     if 'state_dict' in checkpoint:
         checkpoint = dict(checkpoint['state_dict'])
@@ -317,20 +312,20 @@ def main():
     optimizer = torch.optim.Adam(get_parameters(model), lr=args.learning_rate, betas=(0.9, 0.999), eps=1e-08, weight_decay=0, amsgrad=False)
 
     # criterion_smooth = CrossEntropyLabelSmooth(8, 0.1)
-    criterion = CrossEntropyLabelSmooth(class_names.__len__(), args.label_smooth)
+    criterion_smooth = CrossEntropyLabelSmooth(8, args.label_smooth)
     # criterion = nn.CrossEntropyLoss()
     if use_gpu:
-        loss_function = criterion.cuda()
+        loss_function = criterion_smooth.cuda()
         device = torch.device("cuda")
     else:
-        loss_function = criterion
+        loss_function = criterion_smooth
         device = torch.device("cpu")
 
     # scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer,
     #                                               lambda step: (
     #                                                       1.0 - step / args.total_iters) if step <= args.total_iters else 0,
     #                                               last_epoch=-1)
-    scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=5, gamma=0.5)
+    scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=10, gamma=0.5)
 
     model = model.to(device)
 

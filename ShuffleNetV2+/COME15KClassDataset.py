@@ -91,8 +91,13 @@ def set_data_loader(dataset_attr_word, batch_size=10, size=256, shuffle=True, tr
 
 
 if __name__ == '__main__':
-    train_loader = set_data_loader("train")
+    train_transforms_compose = transforms.Compose([
+        transforms.ToTensor()
+        # RGB,imageNet1k mean and standard
+    ])
+    train_loader = set_data_loader("train", transforms_compose=train_transforms_compose)
     print(type(train_loader))
-    for idx, (output_img, output_label) in enumerate(train_loader):
-        print('step is :', idx)
-        print('img is {}, label is {}'.format(output_img.shape, output_label.shape))
+    for step, batch in enumerate(train_loader):
+        for idx, (output_img, output_label) in enumerate(batch):
+            print('step is :', idx)
+            print('img is {}, label is {}'.format(output_img.shape, output_label.shape))
