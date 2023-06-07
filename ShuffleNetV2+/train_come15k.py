@@ -236,7 +236,7 @@ def copy_state_dict(state_dict):
 
 def main():
     args = get_args()
-    date_str = datetime.datetime.now().strftime('%Y-%m-%d-%H%M')
+    date_str = datetime.datetime.now().strftime('%Y-%m-%d-%H:%M')
     args.save = args.save + '/' + date_str + '_max_epoch_' + str(args.total_epoch)
     # Log
     log_format = '[%(asctime)s] %(message)s'
@@ -295,10 +295,25 @@ def main():
         # 去掉分类层
         new_dict = copy_state_dict(pre_train_weight)
         keys = []
-        for k, v in new_dict.items():
-            if k.startswith('classifier'):  # 将‘’开头的key过滤掉，这里是要去除的层的key
-                continue
-            keys.append(k)
+        if type(args.fine_tune_layer) == list and len(args.fine_tune_layer) != 0:
+            # 只留下指定的层
+            fine_tune_layer_list = args.fine_tune_layer
+            for k, v in new_dict.items():
+                if k.startswith('classifier'):  # 将‘’开头的key过滤掉，这里是要去除的层的key
+                    continue
+                if k.startswith('features'):
+                    for ele in fine_tune_layer_list:
+                        if k.startswith('features.' + ele):
+                            keys.append(k)
+                        else:
+                            continue
+                else:
+                    keys.append(k)
+        else:
+            for k, v in new_dict.items():
+                if k.startswith('classifier'):  # 将‘’开头的key过滤掉，这里是要去除的层的key
+                    continue
+                keys.append(k)
         new_dict = {k: new_dict[k] for k in keys}
         state_dict = new_dict
         model.load_state_dict(state_dict, strict=False)
@@ -309,7 +324,8 @@ def main():
     #                             momentum=args.momentum,
     #                             weight_decay=args.weight_decay)
 
-    optimizer = torch.optim.Adam(get_parameters(model), lr=args.learning_rate, betas=(0.9, 0.999), eps=1e-08, weight_decay=0, amsgrad=False)
+    optimizer = torch.optim.Adam(get_parameters(model), lr=args.learning_rate, betas=(0.9, 0.999), eps=1e-08,
+                                 weight_decay=0, amsgrad=False)
 
     # criterion_smooth = CrossEntropyLabelSmooth(8, 0.1)
     criterion_smooth = CrossEntropyLabelSmooth(8, args.label_smooth)
@@ -342,7 +358,7 @@ def main():
     args.optimizer = optimizer
     args.loss_function = loss_function
     args.scheduler = scheduler
-    total_iters = args.total_epoch * args.train_loader.__len__()
+    total_iters = args.total_epoch * len(args.train_loader)
 
     writer = init_tb_writer_global(args)
 
@@ -375,6 +391,9 @@ def get_args():
     parser.add_argument('--val_dir', type=str, default='data/SOD-SemanticDataset/test',
                         help='path to validation dataset')
     parser.add_argument('--fine_tune', type=bool, default=True, help='load pretrain weight at start')
+    parser.add_argument('--fine_tune_layer', type=list,
+                        default=['0', '1', '2', '3', '4', '5', '6', '7', '8', '9', '10', '11', '12', '13', '14', '15',
+                                 '16', '17', '18', '19'], help='load pretrain weight at start')
 
     args = parser.parse_args()
     return args
