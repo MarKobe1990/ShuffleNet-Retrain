@@ -289,15 +289,24 @@ def main():
         'Medium': 'shuffle_net_v2_plus_image1K_pretrianed_weight/ShuffleNetV2+.ImageNet1k_pre_trained_Medium.pth.tar',
         'Large': 'shuffle_net_v2_plus_image1K_pretrianed_weight/ShuffleNetV2+.ImageNet1k_pre_trained_Large.pth.tar'
     }
-
+    # shuffleNetV2+ 主干网络分四个stage
     if args.fine_tune:
+        fine_tune_layer_dic = {"stage_one": ['0', '1', '2', '3'], "stage_two": ['4', '5', '6', '7'],
+                               "stage_three": ['8', '9', '10', '11', '12', '13', '14', '15'],
+                               "stage_four": ['16', '17', '18', '19']}
+        fine_tune_stage_list = args.fine_tune_stage
+        fine_tune_layer = []
+        for fine_tune_stage in fine_tune_stage_list:
+            for k, v in fine_tune_layer_dic.items():
+                if k == fine_tune_stage:
+                    fine_tune_layer.extend(v)
         pre_train_weight = torch.load(pre_train_model_weight_dic[args.model_size])
         # 去掉分类层
         new_dict = copy_state_dict(pre_train_weight)
         keys = []
-        if type(args.fine_tune_layer) == list and len(args.fine_tune_layer) != 0:
+        if type(fine_tune_layer) == list and len(fine_tune_layer) != 0:
             # 只留下指定的层
-            fine_tune_layer_list = args.fine_tune_layer
+            fine_tune_layer_list = fine_tune_layer
             for k, v in new_dict.items():
                 if k.startswith('classifier'):  # 将‘’开头的key过滤掉，这里是要去除的层的key
                     continue
@@ -325,8 +334,7 @@ def main():
     #                             weight_decay=args.weight_decay)
 
     optimizer = torch.optim.Adam(get_parameters(model), lr=args.learning_rate, betas=(0.9, 0.999), eps=1e-08,
-                                 weight_decay=0, amsgrad=False)
-
+                                 weight_decay=args.weight_decay, amsgrad=False)
     # criterion_smooth = CrossEntropyLabelSmooth(8, 0.1)
     criterion_smooth = CrossEntropyLabelSmooth(8, args.label_smooth)
     # criterion = nn.CrossEntropyLoss()
@@ -380,7 +388,7 @@ def get_args():
     parser.add_argument('--total_epoch', type=int, default=100, help='total epoch')
     parser.add_argument('--learning_rate', type=float, default=0.001, help='init learning rate')
     parser.add_argument('--momentum', type=float, default=0.9, help='momentum')
-    parser.add_argument('--weight_decay', type=float, default=4e-5, help='weight decay')
+    parser.add_argument('--weight_decay', type=float, default=1e-4, help='weight decay')
     parser.add_argument('--save', type=str, default='./models', help='path for saving trained models')
     parser.add_argument('--label_smooth', type=float, default=0.1, help='label smoothing')
     parser.add_argument('--auto_continue', type=bool, default=False, help='auto continue')
@@ -391,9 +399,9 @@ def get_args():
     parser.add_argument('--val_dir', type=str, default='data/SOD-SemanticDataset/test',
                         help='path to validation dataset')
     parser.add_argument('--fine_tune', type=bool, default=True, help='load pretrain weight at start')
-    parser.add_argument('--fine_tune_layer', type=list,
-                        default=['0', '1', '2', '3', '4', '5', '6', '7', '8', '9', '10', '11', '12', '13', '14', '15',
-                                 '16', '17', '18', '19'], help='load pretrain weight at start')
+    parser.add_argument('--fine_tune_stage', type=list,
+                        default=["stage_one", "stage_two", "stage_three", "stage_four"], help='load pretrain weight '
+                                                                                              'at start')
 
     args = parser.parse_args()
     return args
