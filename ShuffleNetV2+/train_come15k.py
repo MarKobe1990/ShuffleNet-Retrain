@@ -8,6 +8,7 @@ import torch.nn as nn
 import numpy as np
 import PIL
 from PIL import Image
+import pandas as pd
 import time
 import logging
 import warnings
@@ -259,7 +260,7 @@ def main():
     assert os.path.exists(args.train_dir)
     train_transforms_compose = transforms.Compose([
         transforms.RandomResizedCrop(224),
-        transforms.ColorJitter(brightness=0.4, contrast=0.4, saturation=0.4),
+        # transforms.ColorJitter(brightness=0.4, contrast=0.4, saturation=0.4),
         transforms.RandomHorizontalFlip(0.5),
         transforms.ToTensor(),
         transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])  # RGB,imageNet1k mean and standard
@@ -268,7 +269,8 @@ def main():
                                         transforms_compose=train_transforms_compose)
     assert os.path.exists(args.val_dir)
     val_transforms_compose = transforms.Compose([
-        OpenCVResize(256),
+        # OpenCVResize(256),
+        transforms.Resize(256),
         transforms.CenterCrop(224),
         transforms.ToTensor(),
         transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])  # RGB,imageNet1k mean and standard
@@ -283,6 +285,8 @@ def main():
     # init model
     architecture = [0, 0, 3, 1, 1, 1, 0, 0, 2, 0, 2, 1, 1, 0, 2, 0, 2, 1, 3, 2]
     class_names = ['covering', 'device', 'domestic_animal', 'mater', 'person', 'plant', 'structure', 'vertebrate']
+    class_names_dic = {1: 'covering', 2: 'device', 3: 'domestic_animal', 4: 'mater', 5: 'person', 6: 'plant',
+                       7: 'structure', 8: 'vertebrate'}
     model = ShuffleNetV2_Plus(architecture=architecture, n_class=class_names.__len__(), model_size=args.model_size)
     pre_train_model_weight_dic = {
         'Small': 'shuffle_net_v2_plus_image1K_pretrianed_weight/ShuffleNetV2+.ImageNet1k_pre_trained_Small.pth.tar',
@@ -326,6 +330,22 @@ def main():
         new_dict = {k: new_dict[k] for k in keys}
         state_dict = new_dict
         model.load_state_dict(state_dict, strict=False)
+        # 载入预训练模型参数后...
+        for name, value in model.named_parameters():
+            if name.startswith('features'):
+                for ele in fine_tune_layer_list:
+                    if name.startswith('features.' + ele):
+                        value.requires_grad = False
+                    else:
+                        continue
+        # setup optimizer
+        params = filter(lambda p: p.requires_grad, model.parameters())
+        optimizer = torch.optim.Adam(params, lr=args.learning_rate, betas=(0.9, 0.999), eps=1e-08,
+                                 weight_decay=args.weight_decay, amsgrad=False)
+    else:
+        # 从头训练：随机初始化模型全部权重，从头训练所有层
+        optimizer = torch.optim.Adam(get_parameters(model), lr=args.learning_rate, betas=(0.9, 0.999), eps=1e-08,
+                                     weight_decay=args.weight_decay, amsgrad=False)
 
     # 更新器
     # optimizer = torch.optim.SGD(get_parameters(model),
@@ -333,16 +353,16 @@ def main():
     #                             momentum=args.momentum,
     #                             weight_decay=args.weight_decay)
 
-    optimizer = torch.optim.Adam(get_parameters(model), lr=args.learning_rate, betas=(0.9, 0.999), eps=1e-08,
-                                 weight_decay=args.weight_decay, amsgrad=False)
-    # criterion_smooth = CrossEntropyLabelSmooth(8, 0.1)
-    criterion_smooth = CrossEntropyLabelSmooth(8, args.label_smooth)
-    # criterion = nn.CrossEntropyLoss()
+
+    # criterion = CrossEntropyLabelSmooth(8, 0.1)
+    # label smooth
+    # criterion= CrossEntropyLabelSmooth(8, args.label_smooth)
+    criterion = nn.CrossEntropyLoss()
     if use_gpu:
-        loss_function = criterion_smooth.cuda()
+        loss_function = criterion.cuda()
         device = torch.device("cuda")
     else:
-        loss_function = criterion_smooth
+        loss_function = criterion
         device = torch.device("cpu")
 
     # scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer,
