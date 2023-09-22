@@ -17,6 +17,12 @@ from collections import OrderedDict
 from tensorboardX import SummaryWriter
 from torchvision.transforms import transforms
 
+from sklearn.metrics import precision_score
+from sklearn.metrics import recall_score
+from sklearn.metrics import accuracy_score
+from sklearn.metrics import f1_score
+from sklearn.metrics import roc_auc_score
+
 from network import ShuffleNetV2_Plus
 from COME15KClassDataset import set_data_loader, OpenCVResize
 from tqdm import tqdm
@@ -38,7 +44,7 @@ def adjust_bn_momentum(model, iters):
             m.momentum = 1 / iters
 
 
-def train(model, device, args, epoch, writer, bn_process=False, all_iters=None, total_iters=None):
+def train_one_epoch(model, device, args, epoch, writer, bn_process=False, all_iters=None, total_iters=None):
     optimizer = args.optimizer
     loss_function = args.loss_function
     scheduler = args.scheduler
@@ -50,11 +56,12 @@ def train(model, device, args, epoch, writer, bn_process=False, all_iters=None, 
     model.train()
     pbar = tqdm(train_loader, desc='Epoch-train' + str(epoch), unit='batch')
     d_st = time.time()
+    df_train_log = pd.DataFrame()
     for iters, (batched_inputs_img, batched_inputs_label) in enumerate(pbar):
         if bn_process:
             adjust_bn_momentum(model, iters + 1)
         all_iters += 1
-
+        labels = batched_inputs_label
         batched_inputs_label = batched_inputs_label.type(torch.LongTensor)
         batched_inputs_img, batched_inputs_label = batched_inputs_img.to(device), batched_inputs_label.to(device)
 
@@ -64,16 +71,25 @@ def train(model, device, args, epoch, writer, bn_process=False, all_iters=None, 
         loss.backward()
         optimizer.step()
         prec1, prec2, prec3 = accuracy(output, batched_inputs_label, topk=(1, 2, 3))
-        pbar.set_postfix({
+        _, preds = torch.max(output, 1)  # 获得当前 batch 所有图像的预测类别
+        preds = preds.cpu().numpy()
+        labels = labels.detach().cpu().numpy()
+        train_loss = loss.detach().cpu().numpy()
+        output = output.detach().cpu().numpy()
+        train_accuracy = accuracy_score(labels, preds)
+        log_train_batch = {
+            "epoch": epoch,
             "iter": str(all_iters) + "/" + str(total_iters),
             "lr": scheduler.get_lr()[0],
-            "loss": loss.item(),
+            "loss_tensor": loss.item(),
+            "train_loss_numpy": train_loss,
+            "train_accuracy_top1": train_accuracy,
             "prec1": prec1.item() / 100,
             "prec2": prec2.item() / 100,
             "prec3": prec3.item() / 100
-
-        })
-
+        }
+        pbar.set_postfix(log_train_batch)
+        df_train_log = df_train_log.append(log_train_batch, ignore_index=True)
         Top1_err += 1 - prec1.item() / 100
         Top2_err += 1 - prec2.item() / 100
         Top3_err += 1 - prec3.item() / 100
@@ -108,7 +124,7 @@ def train(model, device, args, epoch, writer, bn_process=False, all_iters=None, 
         'state_dict': model.state_dict(),
     }, args.total_epoch, tag='current-')
 
-    return all_iters
+    return all_iters, df_train_log
 
 
 def validate_easy(model, device, args, epoch, writer):
@@ -122,8 +138,14 @@ def validate_easy(model, device, args, epoch, writer):
     pbar_easy = tqdm(val_loader_easy, desc='Epoch-val-easy:epoch-' + str(epoch), unit='img')
     model.eval()
     t1 = time.time()
+    criterion = nn.CrossEntropyLoss()
+    loss_list = []
+    labels_list = []
+    preds_list = []
     with torch.no_grad():
         for idx, (data, target) in enumerate(pbar_easy):
+            labels = target
+            labels = labels.to(device)
             target = target.type(torch.LongTensor)
             data, target = data.to(device), target.to(device)
             output = model(data)
@@ -134,14 +156,27 @@ def validate_easy(model, device, args, epoch, writer):
             top1_easy.update(prec1.item(), n)
             top2_easy.update(prec2.item(), n)
             top3_easy.update(prec3.item(), n)
-            pbar_easy.set_postfix(
-                {
-                    'process': str(idx) + "/" + str(len(pbar_easy)),
-                    'prec1': prec1.item(),
-                    'prec2': prec2.item(),
-                    'prec3': prec3.item()
-                })
-
+            _, preds = torch.max(output, 1)  # 获得当前 batch 所有图像的预测类别
+            preds = preds.cpu().numpy()
+            test_loss = criterion(output, labels)    # 由 logit，计算当前 batch 中，每个样本的平均交叉熵损失函数值
+            labels = labels.detach().cpu().numpy()
+            output = output.detach().cpu().numpy()
+            test_loss = test_loss.detach().cpu().numpy()
+            test_accuracy = accuracy_score(labels, preds)
+            log_test_easy_batch = {
+                'process': str(idx) + "/" + str(len(pbar_easy)),
+                "epoch": epoch,
+                "loss_tensor": loss.item(),
+                "test_loss_numpy": test_loss,
+                "train_accuracy_top1": test_accuracy,
+                "prec1": prec1.item() / 100,
+                "prec2": prec2.item() / 100,
+                "prec3": prec3.item() / 100
+            }
+            pbar_easy.set_postfix(log_test_easy_batch, refresh=True)
+            loss_list.append(test_loss)
+            labels_list.extend(labels)
+            preds_list.extend(preds)
         logInfo = 'val-easy Epoch {}: loss = {:.6f},\t'.format(epoch, objs_easy.avg) + \
                   'Top-1 err = {:.6f},\t'.format(1 - top1_easy.avg / 100) + \
                   'Top-2 err = {:.6f},\t'.format(1 - top2_easy.avg / 100) + \
@@ -152,14 +187,22 @@ def validate_easy(model, device, args, epoch, writer):
         hyer_params_dic = args.__dict__
         result_dic = {
             "epoch": epoch,
-            "loss": loss.item(),
+            "loss": objs_easy.avg,
             "top-1-error": (1 - top1_easy.avg / 100),
             "top-2-error": (1 - top2_easy.avg / 100),
             "top-3-error": (1 - top3_easy.avg / 100)
         }
         writer.add_hparams(hyer_params_dic, result_dic, name='test_easy', global_step=epoch)
         writer.add_scalars(main_tag='test/easy', tag_scalar_dict=result_dic, global_step=epoch)
-
+    log_test = {}
+    log_test['epoch'] = epoch
+    # 计算分类评估指标
+    log_test['test_easy_loss'] = np.mean(loss_list)
+    log_test['test_easy_accuracy'] = accuracy_score(labels_list, preds_list)
+    log_test['test_easy_precision'] = precision_score(labels_list, preds_list, average='macro')
+    log_test['test_easy_recall'] = recall_score(labels_list, preds_list, average='macro')
+    log_test['test_easy_f1-score'] = f1_score(labels_list, preds_list, average='macro')
+    return log_test
 
 def validate_hard(model, device, args, epoch, writer):
     objs_hard = AvgrageMeter()
@@ -174,8 +217,14 @@ def validate_hard(model, device, args, epoch, writer):
     pbar_hard = tqdm(val_loader_hard, desc='Epoch-val-hard:epoch-' + str(epoch), unit='img')
     model.eval()
     t1 = time.time()
+    criterion = nn.CrossEntropyLoss()
+    loss_list = []
+    labels_list = []
+    preds_list = []
     with torch.no_grad():
         for idx, (data, target) in enumerate(pbar_hard):
+            labels = target
+            labels = labels.to(device)
             target = target.type(torch.LongTensor)
             data, target = data.to(device), target.to(device)
             output = model(data)
@@ -186,12 +235,27 @@ def validate_hard(model, device, args, epoch, writer):
             top1_hard.update(prec1.item(), n)
             top2_hard.update(prec2.item(), n)
             top3_hard.update(prec3.item(), n)
-            pbar_hard.set_postfix({
+            _, preds = torch.max(output, 1)  # 获得当前 batch 所有图像的预测类别
+            preds = preds.cpu().numpy()
+            test_loss = criterion(output, labels)       # 由 logit，计算当前 batch 中，每个样本的平均交叉熵损失函数值
+            labels = labels.detach().cpu().numpy()
+            output = output.detach().cpu().numpy()
+            test_loss = test_loss.detach().cpu().numpy()
+            test_accuracy = accuracy_score(labels, preds)
+            log_hard_hard_batch = {
                 'process': str(idx) + "/" + str(len(pbar_hard)),
-                'prec1': prec1.item(),
-                'prec2': prec2.item(),
-                'prec3': prec3.item()
-            }, refresh=True)
+                "epoch": epoch,
+                "loss_tensor": loss.item(),
+                "test_loss_numpy": test_loss,
+                "train_accuracy_top1": test_accuracy,
+                "prec1": prec1.item() / 100,
+                "prec2": prec2.item() / 100,
+                "prec3": prec3.item() / 100
+            }
+            pbar_hard.set_postfix(log_hard_hard_batch, refresh=True)
+            loss_list.append(test_loss)
+            labels_list.extend(labels)
+            preds_list.extend(preds)
         logInfo = 'val-hard Epoch {}: loss = {:.6f},\t'.format(epoch, objs_hard.avg) + \
                   'Top-1 err = {:.6f},\t'.format(1 - top1_hard.avg / 100) + \
                   'Top-2 err = {:.6f},\t'.format(1 - top2_hard.avg / 100) + \
@@ -202,13 +266,22 @@ def validate_hard(model, device, args, epoch, writer):
         hyer_params_dic = args.__dict__
         result_dic = {
             "epoch": epoch,
-            "loss": loss.item(),
+            "loss": objs_hard.avg,
             "top-1-error": (1 - top1_hard.avg / 100),
             "top-2-error": (1 - top2_hard.avg / 100),
             "top-3-error": (1 - top3_hard.avg / 100)
         }
         writer.add_hparams(hyer_params_dic, result_dic, name='test_hard', global_step=epoch)
         writer.add_scalars(main_tag='test/hard', tag_scalar_dict=result_dic, global_step=epoch)
+    log_test = {}
+    log_test['epoch'] = epoch
+    # 计算分类评估指标
+    log_test['test_hard_loss'] = np.mean(loss_list)
+    log_test['test_hard_accuracy'] = accuracy_score(labels_list, preds_list)
+    log_test['test_hard_precision'] = precision_score(labels_list, preds_list, average='macro')
+    log_test['test_hard_recall'] = recall_score(labels_list, preds_list, average='macro')
+    log_test['test_hard_f1-score'] = f1_score(labels_list, preds_list, average='macro')
+    return log_test
 
 
 def load_checkpoint(net, checkpoint):
@@ -295,49 +368,69 @@ def main():
     }
     # shuffleNetV2+ 主干网络分四个stage
     if args.fine_tune:
-        fine_tune_layer_dic = {"stage_one": ['0', '1', '2', '3'], "stage_two": ['4', '5', '6', '7'],
-                               "stage_three": ['8', '9', '10', '11', '12', '13', '14', '15'],
-                               "stage_four": ['16', '17', '18', '19']}
-        fine_tune_stage_list = args.fine_tune_stage
-        fine_tune_layer = []
-        for fine_tune_stage in fine_tune_stage_list:
-            for k, v in fine_tune_layer_dic.items():
-                if k == fine_tune_stage:
-                    fine_tune_layer.extend(v)
+        layer_dic = {"stage_one": ['0', '1', '2', '3'], "stage_two": ['4', '5', '6', '7'],
+                     "stage_three": ['8', '9', '10', '11', '12', '13', '14', '15'],
+                     "stage_four": ['16', '17', '18', '19']}
+        # 载入四个阶段
         pre_train_weight = torch.load(pre_train_model_weight_dic[args.model_size])
-        # 去掉分类层
-        new_dict = copy_state_dict(pre_train_weight)
-        keys = []
-        if type(fine_tune_layer) == list and len(fine_tune_layer) != 0:
-            # 只留下指定的层
-            fine_tune_layer_list = fine_tune_layer
-            for k, v in new_dict.items():
-                if k.startswith('classifier'):  # 将‘’开头的key过滤掉，这里是要去除的层的key
-                    continue
-                if k.startswith('features'):
-                    for ele in fine_tune_layer_list:
-                        if k.startswith('features.' + ele):
-                            keys.append(k)
-                        else:
-                            continue
-                else:
-                    keys.append(k)
-        else:
+        if args.load_all_pretrain_weight:
+            # 去掉分类层
+            new_dict = copy_state_dict(pre_train_weight)
+            keys = []
             for k, v in new_dict.items():
                 if k.startswith('classifier'):  # 将‘’开头的key过滤掉，这里是要去除的层的key
                     continue
                 keys.append(k)
-        new_dict = {k: new_dict[k] for k in keys}
-        state_dict = new_dict
-        model.load_state_dict(state_dict, strict=False)
-        # 载入预训练模型参数后...
-        for name, value in model.named_parameters():
-            if name.startswith('features'):
-                for ele in fine_tune_layer_list:
-                    if name.startswith('features.' + ele):
-                        value.requires_grad = False
-                    else:
+            new_dict = {k: new_dict[k] for k in keys}
+            state_dict = new_dict
+            model.load_state_dict(state_dict, strict=False)
+        else:
+
+            load_pretrain_stage_list = args.load_pretrain_stage
+            load_pretrain_layer_list = []
+            for load_pretrain_stage_ele in load_pretrain_stage_list:
+                for k, v in layer_dic.items():
+                    if k == load_pretrain_stage_ele:
+                        load_pretrain_layer_list.extend(v)
+            new_dict = copy_state_dict(pre_train_weight)
+            keys = []
+            if type(load_pretrain_layer_list) == list and len(load_pretrain_layer_list) != 0:
+                # 只留下指定的层
+                for k, v in new_dict.items():
+                    if k.startswith('classifier'):  # 将‘’开头的key过滤掉，这里是要去除分类层
                         continue
+                    if k.startswith('features'):
+                        for ele in load_pretrain_layer_list:
+                            if k.startswith('features.' + ele):
+                                keys.append(k)
+                            else:
+                                continue
+                    else:
+                        keys.append(k)
+            else:
+                for k, v in new_dict.items():
+                    if k.startswith('classifier'):  # 将‘’开头的key过滤掉，这里是要去除的层的key
+                        continue
+                    keys.append(k)
+            new_dict = {k: new_dict[k] for k in keys}
+            state_dict = new_dict
+            model.load_state_dict(state_dict, strict=False)
+        # 载入预训练模型参数后...
+        # 冻结部分, 分stage
+        frozen_stage_list = args.frozen_stage
+        frozen_layer_list = []
+        for frozen_stage_ele in frozen_stage_list:
+            for k, v in layer_dic.items():
+                if k == frozen_stage_ele:
+                    frozen_layer_list.extend(v)
+        if type(frozen_layer_list) == list and len(frozen_layer_list) != 0:
+            for name, value in model.named_parameters():
+                if name.startswith('features'):
+                    for ele in frozen_layer_list:
+                        if name.startswith('features.' + ele):
+                            value.requires_grad = False
+                        else:
+                            continue
         # setup optimizer
         params = filter(lambda p: p.requires_grad, model.parameters())
         optimizer = torch.optim.Adam(params, lr=args.learning_rate, betas=(0.9, 0.999), eps=1e-08,
@@ -389,23 +482,31 @@ def main():
     total_iters = args.total_epoch * len(args.train_loader)
 
     writer = init_tb_writer_global(args)
-
+    best_test_accuracy = 0
+    df_test_easy_log = pd.DataFrame()
+    df_test_hard_log = pd.DataFrame()
+    df_train_log_all = pd.DataFrame()
     for epoch in range(1, args.total_epoch + 1):
-        all_iters = train(model, device, args, epoch, writer=writer, bn_process=True, all_iters=all_iters,
+        all_iters, df_train_log = train_one_epoch(model, device, args, epoch, writer=writer, bn_process=True, all_iters=all_iters,
                           total_iters=total_iters)
-        validate_easy(model, device, args, epoch, writer=writer)
-        validate_hard(model, device, args, epoch, writer=writer)
+        log_easy_test = validate_easy(model, device, args, epoch, writer=writer)
+        log_hard_test = validate_hard(model, device, args, epoch, writer=writer)
 
+        df_test_easy_log = df_test_easy_log.append(log_easy_test, ignore_index=True)
+        df_test_hard_log = df_test_hard_log.append(log_hard_test, ignore_index=True)
+        df_train_log_all = pd.concat([df_train_log_all,df_train_log])
         save_checkpoint(path=args.save, state={'state_dict': model.state_dict(), }, epoch=epoch,
                         tag='retrain_COME15K_', model_size=args.model_size)
-
+    df_train_log_all.to_csv(args.save + '/log' + '训练日志-训练集.csv', index=False)
+    df_test_easy_log.to_csv(args.save + '/log' + '训练日志-easy-测试集.csv', index=False)
+    df_test_hard_log.to_csv(args.save + '/log' + '训练日志-hard-测试集.csv', index=False)
 
 def get_args():
     parser = argparse.ArgumentParser("ShuffleNetV2_Plus")
     parser.add_argument('--eval', default=False, action='store_true')
     parser.add_argument('--eval_resume', type=str, default='./snet_detnas.pkl', help='path for eval model')
     parser.add_argument('--batch_size', type=int, default=10, help='batch size')
-    parser.add_argument('--total_epoch', type=int, default=100, help='total epoch')
+    parser.add_argument('--total_epoch', type=int, default=1, help='total epoch')
     parser.add_argument('--learning_rate', type=float, default=0.001, help='init learning rate')
     parser.add_argument('--momentum', type=float, default=0.9, help='momentum')
     parser.add_argument('--weight_decay', type=float, default=1e-4, help='weight decay')
@@ -419,10 +520,12 @@ def get_args():
     parser.add_argument('--val_dir', type=str, default='data/SOD-SemanticDataset/test',
                         help='path to validation dataset')
     parser.add_argument('--fine_tune', type=bool, default=True, help='load pretrain weight at start')
-    parser.add_argument('--fine_tune_stage', type=list,
+    parser.add_argument('--load_all_pretrain_weight', type=bool, default=True, help='load all pretrain weight at start')
+    parser.add_argument('--load_pretrain_stage', type=list,
                         default=["stage_one", "stage_two", "stage_three", "stage_four"], help='load pretrain weight '
                                                                                               'at start')
-
+    parser.add_argument('--frozen_stage', type=list,
+                        default=["stage_one"], help='frozen weight')
     args = parser.parse_args()
     return args
 
