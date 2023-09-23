@@ -3,6 +3,7 @@ import os
 import sys
 from collections import OrderedDict
 
+import pandas
 import torch
 import torch.nn as nn
 import numpy as np
@@ -26,7 +27,8 @@ from sklearn.metrics import roc_auc_score
 from network import ShuffleNetV2_Plus
 from COME15KClassDataset import set_data_loader, OpenCVResize
 from tqdm import tqdm
-from utils import accuracy, AvgrageMeter, CrossEntropyLabelSmooth, save_checkpoint, get_lastest_model, get_parameters
+from utils import accuracy, AvgrageMeter, CrossEntropyLabelSmooth, save_checkpoint, save_checkpoint_result, \
+    get_lastest_model, get_parameters
 
 warnings.filterwarnings("ignore")
 
@@ -53,6 +55,7 @@ def train_one_epoch(model, device, args, epoch, writer, bn_process=False, all_it
     Top1_err = 0.0
     Top2_err = 0.0
     Top3_err = 0.0
+    loss_avg = 0.0
     model.train()
     pbar = tqdm(train_loader, desc='Epoch-train' + str(epoch), unit='batch')
     d_st = time.time()
@@ -80,6 +83,7 @@ def train_one_epoch(model, device, args, epoch, writer, bn_process=False, all_it
         log_train_batch = {
             "epoch": epoch,
             "iter": str(all_iters) + "/" + str(total_iters),
+            "batch": str(all_iters),
             "lr": scheduler.get_lr()[0],
             "loss_tensor": loss.item(),
             "train_loss_numpy": train_loss,
@@ -89,21 +93,23 @@ def train_one_epoch(model, device, args, epoch, writer, bn_process=False, all_it
             "prec3": prec3.item() / 100
         }
         pbar.set_postfix(log_train_batch)
-        df_train_log = df_train_log.append(log_train_batch, ignore_index=True)
+        df_train_log = df_train_log._append(log_train_batch, ignore_index=True)
         Top1_err += 1 - prec1.item() / 100
         Top2_err += 1 - prec2.item() / 100
         Top3_err += 1 - prec3.item() / 100
-
+        loss_avg += loss.item()
     scheduler.step()
     train_time = time.time() - d_st
 
     printInfo = 'TRAIN epoch {}: lr = {:.6f},\tloss = {:.6f},\t'.format(epoch, scheduler.get_lr()[0],
-                                                                        loss.item()) + \
+                                                                        loss_avg / iters) + \
                 'Top-1 err = {:.6f},\t'.format(Top1_err / iters) + \
                 'Top-2 err = {:.6f},\t'.format(Top2_err / iters) + \
                 'Top-3 err = {:.6f},\t'.format(Top3_err / iters) + \
                 'data_time = {:.6f},\ttrain_time = {:.6f}\n'.format(time.time(),
-                                                                    train_time / iters)
+                                                                   train_time / iters)
+    if(epoch == 1):
+        logging.info(args.__dict__.__str__())
     logging.info(printInfo)
     print(printInfo)
     hyer_params_dic = args.__dict__
@@ -111,8 +117,9 @@ def train_one_epoch(model, device, args, epoch, writer, bn_process=False, all_it
     #     "epoch_total": args.total_epoch
     # }
     result_dic = {
+        "epoch": epoch,
         "lr": scheduler.get_lr()[0],
-        "loss": loss.item(),
+        "loss": loss_avg / iters,
         "top-1-error": Top1_err / iters,
         "top-2-error": Top2_err / iters,
         "top-3-error": Top3_err / iters
@@ -124,7 +131,7 @@ def train_one_epoch(model, device, args, epoch, writer, bn_process=False, all_it
         'state_dict': model.state_dict(),
     }, args.total_epoch, tag='current-')
 
-    return all_iters, df_train_log
+    return all_iters, df_train_log, result_dic
 
 
 def validate_easy(model, device, args, epoch, writer):
@@ -158,7 +165,7 @@ def validate_easy(model, device, args, epoch, writer):
             top3_easy.update(prec3.item(), n)
             _, preds = torch.max(output, 1)  # 获得当前 batch 所有图像的预测类别
             preds = preds.cpu().numpy()
-            test_loss = criterion(output, labels)    # 由 logit，计算当前 batch 中，每个样本的平均交叉熵损失函数值
+            test_loss = criterion(output, labels)  # 由 logit，计算当前 batch 中，每个样本的平均交叉熵损失函数值
             labels = labels.detach().cpu().numpy()
             output = output.detach().cpu().numpy()
             test_loss = test_loss.detach().cpu().numpy()
@@ -204,6 +211,7 @@ def validate_easy(model, device, args, epoch, writer):
     log_test['test_easy_f1-score'] = f1_score(labels_list, preds_list, average='macro')
     return log_test
 
+
 def validate_hard(model, device, args, epoch, writer):
     objs_hard = AvgrageMeter()
     top1_hard = AvgrageMeter()
@@ -237,7 +245,7 @@ def validate_hard(model, device, args, epoch, writer):
             top3_hard.update(prec3.item(), n)
             _, preds = torch.max(output, 1)  # 获得当前 batch 所有图像的预测类别
             preds = preds.cpu().numpy()
-            test_loss = criterion(output, labels)       # 由 logit，计算当前 batch 中，每个样本的平均交叉熵损失函数值
+            test_loss = criterion(output, labels)  # 由 logit，计算当前 batch 中，每个样本的平均交叉熵损失函数值
             labels = labels.detach().cpu().numpy()
             output = output.detach().cpu().numpy()
             test_loss = test_loss.detach().cpu().numpy()
@@ -385,7 +393,6 @@ def main():
             state_dict = new_dict
             model.load_state_dict(state_dict, strict=False)
         else:
-
             load_pretrain_stage_list = args.load_pretrain_stage
             load_pretrain_layer_list = []
             for load_pretrain_stage_ele in load_pretrain_stage_list:
@@ -434,7 +441,7 @@ def main():
         # setup optimizer
         params = filter(lambda p: p.requires_grad, model.parameters())
         optimizer = torch.optim.Adam(params, lr=args.learning_rate, betas=(0.9, 0.999), eps=1e-08,
-                                 weight_decay=args.weight_decay, amsgrad=False)
+                                     weight_decay=args.weight_decay, amsgrad=False)
     else:
         # 从头训练：随机初始化模型全部权重，从头训练所有层
         optimizer = torch.optim.Adam(get_parameters(model), lr=args.learning_rate, betas=(0.9, 0.999), eps=1e-08,
@@ -445,7 +452,6 @@ def main():
     #                             lr=args.learning_rate,
     #                             momentum=args.momentum,
     #                             weight_decay=args.weight_decay)
-
 
     # criterion = CrossEntropyLabelSmooth(8, 0.1)
     # label smooth
@@ -482,31 +488,48 @@ def main():
     total_iters = args.total_epoch * len(args.train_loader)
 
     writer = init_tb_writer_global(args)
-    best_test_accuracy = 0
+    test_result_dic = {'best_easy_accuracy': 0, 'best_easy_accuracy_epoch': 0,
+                       'best_hard_accuracy': 0, 'best_hard_accuracy_epoch': 0,
+                       'best_avg_accuracy': 0, 'best_avg_accuracy_epoch': 0}
     df_test_easy_log = pd.DataFrame()
     df_test_hard_log = pd.DataFrame()
     df_train_log_all = pd.DataFrame()
+    df_train_log_epoch = pd.DataFrame()
+    df_test_final_bset = pd.DataFrame()
     for epoch in range(1, args.total_epoch + 1):
-        all_iters, df_train_log = train_one_epoch(model, device, args, epoch, writer=writer, bn_process=True, all_iters=all_iters,
-                          total_iters=total_iters)
+        all_iters, df_train_log, result_dic = train_one_epoch(model, device, args, epoch, writer=writer,
+                                                              bn_process=True, all_iters=all_iters,
+                                                              total_iters=total_iters)
+        df_train_log_epoch = df_train_log_epoch._append(result_dic, ignore_index=True)
         log_easy_test = validate_easy(model, device, args, epoch, writer=writer)
         log_hard_test = validate_hard(model, device, args, epoch, writer=writer)
 
-        df_test_easy_log = df_test_easy_log.append(log_easy_test, ignore_index=True)
-        df_test_hard_log = df_test_hard_log.append(log_hard_test, ignore_index=True)
-        df_train_log_all = pd.concat([df_train_log_all,df_train_log])
-        save_checkpoint(path=args.save, state={'state_dict': model.state_dict(), }, epoch=epoch,
-                        tag='retrain_COME15K_', model_size=args.model_size)
-    df_train_log_all.to_csv(args.save + '/log' + '训练日志-训练集.csv', index=False)
-    df_test_easy_log.to_csv(args.save + '/log' + '训练日志-easy-测试集.csv', index=False)
-    df_test_hard_log.to_csv(args.save + '/log' + '训练日志-hard-测试集.csv', index=False)
+        df_test_easy_log = df_test_easy_log._append(log_easy_test, ignore_index=True)
+        df_test_hard_log = df_test_hard_log._append(log_hard_test, ignore_index=True)
+        df_train_log_all = pd.concat([df_train_log_all, df_train_log])
+        test_easy_accuracy = log_easy_test['test_easy_accuracy']
+        test_hard_accuracy = log_hard_test['test_hard_accuracy']
+        test_result_dic = save_checkpoint_result(path=args.save, state={'state_dict': model.state_dict(), },
+                                                 epoch=epoch,
+                                                 tag='retrain_COME15K_', model_size=args.model_size,
+                                                 test_easy_accuracy=test_easy_accuracy,
+                                                 test_hard_accuracy=test_hard_accuracy, test_result_dic=test_result_dic)
+        test_result_dic["epoch"] = epoch
+        df_test_final_bset = df_test_final_bset._append(test_result_dic, ignore_index=True)
+    df_train_log_all.to_csv(args.save + '/log/' + '训练日志-训练集.csv', index=False)
+    df_train_log_epoch.to_csv(args.save + '/log/' + '训练日志-epoch-训练集.csv', index=False)
+    df_test_easy_log.to_csv(args.save + '/log/' + '训练日志-easy-测试集.csv', index=False)
+    df_test_hard_log.to_csv(args.save + '/log/' + '训练日志-hard-测试集.csv', index=False)
+    df_test_final_bset.to_csv(args.save + '/log/' + '训练日志-best-测试集.csv', index=False)
+    print(test_result_dic.__str__())
+
 
 def get_args():
     parser = argparse.ArgumentParser("ShuffleNetV2_Plus")
     parser.add_argument('--eval', default=False, action='store_true')
     parser.add_argument('--eval_resume', type=str, default='./snet_detnas.pkl', help='path for eval model')
     parser.add_argument('--batch_size', type=int, default=10, help='batch size')
-    parser.add_argument('--total_epoch', type=int, default=1, help='total epoch')
+    parser.add_argument('--total_epoch', type=int, default=50, help='total epoch')
     parser.add_argument('--learning_rate', type=float, default=0.001, help='init learning rate')
     parser.add_argument('--momentum', type=float, default=0.9, help='momentum')
     parser.add_argument('--weight_decay', type=float, default=1e-4, help='weight decay')
@@ -523,9 +546,10 @@ def get_args():
     parser.add_argument('--load_all_pretrain_weight', type=bool, default=True, help='load all pretrain weight at start')
     parser.add_argument('--load_pretrain_stage', type=list,
                         default=["stage_one", "stage_two", "stage_three", "stage_four"], help='load pretrain weight '
-                                                                                              'at start')
+                                                                                              'at start, working at '
+                                                                                              'load_all_pretrain_weight = false')
     parser.add_argument('--frozen_stage', type=list,
-                        default=["stage_one"], help='frozen weight')
+                        default=["stage_one", "stage_two", "stage_three", "stage_four"], help='frozen weight')
     args = parser.parse_args()
     return args
 
