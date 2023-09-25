@@ -107,8 +107,8 @@ def train_one_epoch(model, device, args, epoch, writer, bn_process=False, all_it
                 'Top-2 err = {:.6f},\t'.format(Top2_err / iters) + \
                 'Top-3 err = {:.6f},\t'.format(Top3_err / iters) + \
                 'data_time = {:.6f},\ttrain_time = {:.6f}\n'.format(time.time(),
-                                                                   train_time / iters)
-    if(epoch == 1):
+                                                                    train_time / iters)
+    if (epoch == 1):
         logging.info(args.__dict__.__str__())
     logging.info(printInfo)
     print(printInfo)
@@ -347,7 +347,8 @@ def main():
         transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])  # RGB,imageNet1k mean and standard
     ])
     args.train_loader = set_data_loader(dataset_attr_word="train", batch_size=10, size=256, shuffle=True,
-                                        transforms_compose=train_transforms_compose)
+                                        transforms_compose=train_transforms_compose,
+                                        droup_out_class_label=args.droup_out_class_label)
     assert os.path.exists(args.val_dir)
     val_transforms_compose = transforms.Compose([
         # OpenCVResize(256),
@@ -455,8 +456,8 @@ def main():
 
     # criterion = CrossEntropyLabelSmooth(8, 0.1)
     # label smooth
-    # criterion= CrossEntropyLabelSmooth(8, args.label_smooth)
-    criterion = nn.CrossEntropyLoss()
+    criterion= CrossEntropyLabelSmooth(8, args.label_smooth)
+    # criterion = nn.CrossEntropyLoss()
     if use_gpu:
         loss_function = criterion.cuda()
         device = torch.device("cuda")
@@ -529,8 +530,8 @@ def get_args():
     parser.add_argument('--eval', default=False, action='store_true')
     parser.add_argument('--eval_resume', type=str, default='./snet_detnas.pkl', help='path for eval model')
     parser.add_argument('--batch_size', type=int, default=10, help='batch size')
-    parser.add_argument('--total_epoch', type=int, default=100, help='total epoch')
-    parser.add_argument('--learning_rate', type=float, default=0.001, help='init learning rate')
+    parser.add_argument('--total_epoch', type=int, default=50, help='total epoch')
+    parser.add_argument('--learning_rate', type=float, default=0.00003, help='init learning rate')
     parser.add_argument('--momentum', type=float, default=0.9, help='momentum')
     parser.add_argument('--weight_decay', type=float, default=1e-4, help='weight decay')
     parser.add_argument('--save', type=str, default='./models', help='path for saving trained models')
@@ -542,14 +543,17 @@ def get_args():
                         help='path to training dataset')
     parser.add_argument('--val_dir', type=str, default='data/SOD-SemanticDataset/test',
                         help='path to validation dataset')
-    parser.add_argument('--fine_tune', type=bool, default=False, help='load pretrain weight at start')
-    parser.add_argument('--load_all_pretrain_weight', type=bool, default=True, help='load all pretrain weight at start')
+    parser.add_argument('--fine_tune', type=bool, default=True, help='load pretrain weight at start')
+    parser.add_argument('--load_all_pretrain_weight', type=bool, default=True, help='load all pretrain weight at '
+                                                                                     'beginning')
     parser.add_argument('--load_pretrain_stage', type=list,
                         default=["stage_one", "stage_two", "stage_three", "stage_four"], help='load pretrain weight '
                                                                                               'at start, working at '
                                                                                               'load_all_pretrain_weight = false')
     parser.add_argument('--frozen_stage', type=list,
-                        default=[""], help='frozen weight')
+                        default=["stage_one"], help='frozen weight')
+    parser.add_argument('--droup_out_class_label', type=list,
+                        default=[], help='training with drop out the class of images in dataset')
     args = parser.parse_args()
     return args
 
