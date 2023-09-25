@@ -60,7 +60,7 @@ def save_checkpoint(path, state, epoch, tag='', model_size=''):
     torch.save(state, filename)
 
 
-def save_checkpoint_result(path, state, epoch, tag, model_size, test_easy_accuracy, test_hard_accuracy,
+def save_checkpoint_result(path, model, epoch, tag, model_size, test_easy_accuracy, test_hard_accuracy,
                            test_result_dic):
     if not os.path.exists(path):
         os.makedirs(path)
@@ -78,9 +78,9 @@ def save_checkpoint_result(path, state, epoch, tag, model_size, test_easy_accura
                                                                                       model_size)
         print('保存新的平均准确度最高的模型',
               "{}checkpoint-best-avg-{:.3f}-{:06}-{}.pth.tar".format(tag, avg_accuracy_result, epoch, model_size))
-        test_result_dic['best_easy_accuracy_epoch'] = epoch
+        test_result_dic['best_avg_accuracy_epoch'] = epoch
         filename = os.path.join(new_save_file_name)
-        torch.save(state, filename)
+        torch.save(model, filename)
         test_result_dic['best_avg_accuracy'] = avg_accuracy_result
     # 2、保存test_easy_accuracy最好的
     if test_easy_accuracy > test_result_dic['best_easy_accuracy']:
@@ -94,9 +94,9 @@ def save_checkpoint_result(path, state, epoch, tag, model_size, test_easy_accura
                                                                                        model_size)
         print('保存新的easy测试集准确度最高的模型',
               "{}checkpoint-best-easy-{:.3f}-{}.pth.tar".format(tag, test_easy_accuracy, epoch, model_size))
-        test_result_dic['best_easy_accuracy'] = epoch
+        test_result_dic['best_easy_accuracy_epoch'] = epoch
         filename = os.path.join(new_save_file_name)
-        torch.save(state, filename)
+        torch.save(model, filename)
         test_result_dic['best_easy_accuracy'] = test_easy_accuracy
     # 3、保存test_hard_accuracy最好的
     if test_hard_accuracy > test_result_dic['best_hard_accuracy']:
@@ -111,9 +111,9 @@ def save_checkpoint_result(path, state, epoch, tag, model_size, test_easy_accura
                                                                                        , model_size)
         print('保存新的hard测试集准确度最高的模型',
               "{}checkpoint-best-hard-{:.3f}-{}.pth.tar".format(tag, test_hard_accuracy, model_size))
-        test_result_dic['best_hard_accuracy'] = epoch
+        test_result_dic['best_hard_accuracy_epoch'] = epoch
         filename = os.path.join(new_save_file_name)
-        torch.save(state, filename)
+        torch.save(model, filename)
         test_result_dic['best_hard_accuracy'] = test_hard_accuracy
     return test_result_dic
 

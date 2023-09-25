@@ -509,7 +509,7 @@ def main():
         df_train_log_all = pd.concat([df_train_log_all, df_train_log])
         test_easy_accuracy = log_easy_test['test_easy_accuracy']
         test_hard_accuracy = log_hard_test['test_hard_accuracy']
-        test_result_dic = save_checkpoint_result(path=args.save, state={'state_dict': model.state_dict(), },
+        test_result_dic = save_checkpoint_result(path=args.save, model=model,
                                                  epoch=epoch,
                                                  tag='retrain_COME15K_', model_size=args.model_size,
                                                  test_easy_accuracy=test_easy_accuracy,
@@ -529,7 +529,7 @@ def get_args():
     parser.add_argument('--eval', default=False, action='store_true')
     parser.add_argument('--eval_resume', type=str, default='./snet_detnas.pkl', help='path for eval model')
     parser.add_argument('--batch_size', type=int, default=10, help='batch size')
-    parser.add_argument('--total_epoch', type=int, default=50, help='total epoch')
+    parser.add_argument('--total_epoch', type=int, default=100, help='total epoch')
     parser.add_argument('--learning_rate', type=float, default=0.001, help='init learning rate')
     parser.add_argument('--momentum', type=float, default=0.9, help='momentum')
     parser.add_argument('--weight_decay', type=float, default=1e-4, help='weight decay')
@@ -542,14 +542,14 @@ def get_args():
                         help='path to training dataset')
     parser.add_argument('--val_dir', type=str, default='data/SOD-SemanticDataset/test',
                         help='path to validation dataset')
-    parser.add_argument('--fine_tune', type=bool, default=True, help='load pretrain weight at start')
+    parser.add_argument('--fine_tune', type=bool, default=False, help='load pretrain weight at start')
     parser.add_argument('--load_all_pretrain_weight', type=bool, default=True, help='load all pretrain weight at start')
     parser.add_argument('--load_pretrain_stage', type=list,
                         default=["stage_one", "stage_two", "stage_three", "stage_four"], help='load pretrain weight '
                                                                                               'at start, working at '
                                                                                               'load_all_pretrain_weight = false')
     parser.add_argument('--frozen_stage', type=list,
-                        default=["stage_one", "stage_two", "stage_three", "stage_four"], help='frozen weight')
+                        default=[""], help='frozen weight')
     args = parser.parse_args()
     return args
 
