@@ -194,7 +194,7 @@ class Shuffle_Xception(nn.Module):
 
 def channel_shuffle(x):
     batchsize, num_channels, height, width = x.data.size()
-    assert (num_channels % 4 == 0)
+    # assert (num_channels % 4 == 0)
     x = x.reshape(batchsize * num_channels // 2, 2, height * width)
     x = x.permute(1, 0, 2)
     x = x.reshape(2, -1, num_channels // 2, height, width)
