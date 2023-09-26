@@ -38,7 +38,7 @@ class OpenCVResize(object):
 #         return img
 
 class COME15KDataSet(Dataset):
-    def __init__(self, txt_name, data_path, transform, size):
+    def __init__(self, txt_name, data_path, transform, size, droup_out_class_label=None):
         super(COME15KDataSet, self).__init__()
         # 打开存储图像名与标签的txt文件
         fp = open(txt_name, 'r')
@@ -49,8 +49,9 @@ class COME15KDataSet(Dataset):
             line.strip('\n')
             line.rstrip()
             information = line.split()
-            images.append(information[0])
-            labels.append(int(information[1]))
+            if (droup_out_class_label is None) or (int(information[1]) not in droup_out_class_label):
+                images.append(information[0])
+                labels.append(int(information[1]))
         self.images = images
         self.labels = labels
         self.transform = transform
@@ -74,17 +75,18 @@ class COME15KDataSet(Dataset):
         return len(self.images)
 
 
-def set_data_loader(dataset_attr_word, batch_size=10, size=256, shuffle=True, transforms_compose=None):
+def set_data_loader(dataset_attr_word, batch_size=10, size=256, shuffle=True, transforms_compose=None,
+                    droup_out_class_label=None, dataset_dir=None):
     class_txt_path_dic = {
-        "train": ['data_class_txt/train_classes.txt', 'data/SOD-SemanticDataset/train/'],
-        "val_easy": ['data_class_txt/val_easy_classes.txt', 'data/SOD-SemanticDataset/test/COME15K-Easy/'],
-        "val_hard": ['data_class_txt/val_hard_classes.txt', 'data/SOD-SemanticDataset/test/COME15K-Hard/'],
-        "test_easy": ['data_class_txt/test_easy_classes.txt', 'data/SOD-SemanticDataset/test/COME15K-Easy/'],
-        "test_hard": ['data_class_txt/test_hard_classes.txt', 'data/SOD-SemanticDataset/test/COME15K-Hard/'],
+        "train": ['data_class_txt/train_classes.txt', dataset_dir + '/train/'],
+        "val_easy": ['data_class_txt/val_easy_classes.txt', dataset_dir + '/test/COME15K-Easy/'],
+        "val_hard": ['data_class_txt/val_hard_classes.txt', dataset_dir + '/test/COME15K-Hard/'],
+        "test_easy": ['data_class_txt/test_easy_classes.txt', dataset_dir + '/test/COME15K-Easy/'],
+        "test_hard": ['data_class_txt/test_hard_classes.txt', dataset_dir + '/test/COME15K-Hard/'],
     }
     dataset_attr = class_txt_path_dic.get(dataset_attr_word)
     dataset = COME15KDataSet(txt_name=dataset_attr[0], data_path=dataset_attr[1], transform=transforms_compose,
-                             size=size)
+                             size=size, droup_out_class_label=droup_out_class_label)
     dataset_loader = DataLoader(dataset=dataset, batch_size=batch_size, shuffle=shuffle, num_workers=2, drop_last=True,
                                 pin_memory=True)
     return dataset_loader
