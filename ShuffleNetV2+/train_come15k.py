@@ -347,7 +347,8 @@ def main():
         transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])  # RGB,imageNet1k mean and standard
     ])
     args.train_loader = set_data_loader(dataset_attr_word="train", batch_size=10, size=256, shuffle=True,
-                                        transforms_compose=train_transforms_compose, dataset_dir = args.train_dir)
+                                        transforms_compose=train_transforms_compose, droup_out_class_label=args.droup_out_class_label,
+                                        dataset_dir=args.train_dir)
     assert os.path.exists(args.val_dir)
     val_transforms_compose = transforms.Compose([
         # OpenCVResize(256),
@@ -358,9 +359,9 @@ def main():
     ])
 
     args.val_loader_easy = set_data_loader(dataset_attr_word="test_easy", batch_size=1, size=256, shuffle=False,
-                                           transforms_compose=val_transforms_compose,dataset_dir = args.val_dir)
+                                           transforms_compose=val_transforms_compose, dataset_dir=args.val_dir)
     args.val_loader_hard = set_data_loader(dataset_attr_word="test_hard", batch_size=1, size=256, shuffle=False,
-                                           transforms_compose=val_transforms_compose, dataset_dir = args.val_dir)
+                                           transforms_compose=val_transforms_compose, dataset_dir=args.val_dir)
     print('load data successfully')
 
     # init model
@@ -455,7 +456,7 @@ def main():
 
     # criterion = CrossEntropyLabelSmooth(8, 0.1)
     # label smooth
-    criterion= CrossEntropyLabelSmooth(8, args.label_smooth)
+    criterion = CrossEntropyLabelSmooth(8, args.label_smooth)
     # criterion = nn.CrossEntropyLoss()
     if use_gpu:
         loss_function = criterion.cuda()
@@ -529,8 +530,8 @@ def get_args():
     parser.add_argument('--eval', default=False, action='store_true')
     parser.add_argument('--eval_resume', type=str, default='./snet_detnas.pkl', help='path for eval model')
     parser.add_argument('--batch_size', type=int, default=10, help='batch size')
-    parser.add_argument('--total_epoch', type=int, default=50, help='total epoch')
-    parser.add_argument('--learning_rate', type=float, default=5e-5, help='init learning rate')
+    parser.add_argument('--total_epoch', type=int, default=100, help='total epoch')
+    parser.add_argument('--learning_rate', type=float, default=5e-4, help='init learning rate')
     parser.add_argument('--momentum', type=float, default=0.9, help='momentum')
     parser.add_argument('--weight_decay', type=float, default=1e-4, help='weight decay')
     parser.add_argument('--save', type=str, default='./models', help='path for saving trained models')
@@ -540,7 +541,7 @@ def get_args():
                         help='size of the model')
     parser.add_argument('--train_dir', type=str, default='data/SOD-SemanticDataset',
                         help='path to training dataset')
-    parser.add_argument('--val_dir', type=str, default='data/SOD-SemanticDataset-OriginalSize',
+    parser.add_argument('--val_dir', type=str, dedefaultfault='data/SOD-SemanticDataset',
                         help='path to validation dataset')
     parser.add_argument('--fine_tune', type=bool, default=True, help='load pretrain weight at start')
     parser.add_argument('--load_all_pretrain_weight', type=bool, default=True, help='load all pretrain weight at '
@@ -552,7 +553,7 @@ def get_args():
     parser.add_argument('--frozen_stage', type=list,
                         default=["stage_one"], help='frozen weight')
     parser.add_argument('--droup_out_class_label', type=list,
-                        default=[], help='training with drop out the class of images in dataset')
+                        default=["covering"], help='training with drop out the class of images in dataset')
     args = parser.parse_args()
     return args
 
