@@ -435,7 +435,7 @@ def main():
             for name, value in model.named_parameters():
                 if name.startswith('features'):
                     for ele in frozen_layer_list:
-                        if name.startswith('features.' + ele):
+                        if name.split('.')[1] is ele:
                             value.requires_grad = False
                         else:
                             continue
@@ -531,7 +531,7 @@ def get_args():
     parser.add_argument('--eval_resume', type=str, default='./snet_detnas.pkl', help='path for eval model')
     parser.add_argument('--batch_size', type=int, default=10, help='batch size')
     parser.add_argument('--total_epoch', type=int, default=100, help='total epoch')
-    parser.add_argument('--learning_rate', type=float, default=5e-4, help='init learning rate')
+    parser.add_argument('--learning_rate', type=float, default=5e-5, help='init learning rate')
     parser.add_argument('--momentum', type=float, default=0.9, help='momentum')
     parser.add_argument('--weight_decay', type=float, default=1e-4, help='weight decay')
     parser.add_argument('--save', type=str, default='./models', help='path for saving trained models')
@@ -541,7 +541,7 @@ def get_args():
                         help='size of the model')
     parser.add_argument('--train_dir', type=str, default='data/SOD-SemanticDataset',
                         help='path to training dataset')
-    parser.add_argument('--val_dir', type=str, dedefaultfault='data/SOD-SemanticDataset',
+    parser.add_argument('--val_dir', type=str, default='data/SOD-SemanticDataset',
                         help='path to validation dataset')
     parser.add_argument('--fine_tune', type=bool, default=True, help='load pretrain weight at start')
     parser.add_argument('--load_all_pretrain_weight', type=bool, default=True, help='load all pretrain weight at '
@@ -553,7 +553,7 @@ def get_args():
     parser.add_argument('--frozen_stage', type=list,
                         default=["stage_one"], help='frozen weight')
     parser.add_argument('--droup_out_class_label', type=list,
-                        default=["covering"], help='training with drop out the class of images in dataset')
+                        default=[0], help='training with drop out the class of images in dataset')
     args = parser.parse_args()
     return args
 
