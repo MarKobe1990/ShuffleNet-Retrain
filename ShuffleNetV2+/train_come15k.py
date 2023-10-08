@@ -379,7 +379,7 @@ def main():
     if args.fine_tune:
         layer_dic = {"stage_one": ['0', '1', '2', '3'], "stage_two": ['4', '5', '6', '7'],
                      "stage_three": ['8', '9', '10', '11', '12', '13', '14', '15'],
-                     "stage_four": ['16', '17', '18', '19']}
+                     "stage_four": ['16', '17', '18', '19'], "first_conv": ['first_conv']}
         # 载入四个阶段
         pre_train_weight = torch.load(pre_train_model_weight_dic[args.model_size])
         if args.load_all_pretrain_weight:
@@ -391,9 +391,9 @@ def main():
                 if k.startswith('classifier'):  # 将‘’开头的key过滤掉，这里是要去除的层的key
                     continue
                 keys.append(k)
-            new_dict = {k: new_dict[k] for k in keys}
-            state_dict = new_dict
-            model.load_state_dict(state_dict, strict=False)
+            # new_dict = {k: new_dict[k] for k in keys}
+            # state_dict = new_dict
+            # model.load_state_dict(state_dict, strict=False)
         else:
             load_pretrain_stage_list = args.load_pretrain_stage
             load_pretrain_layer_list = []
@@ -408,16 +408,19 @@ def main():
                 for k, v in new_dict.items():
                     if k.startswith('classifier'):  # 将‘’开头的key过滤掉，这里是要去除分类层
                         continue
-                    if k.startswith('features'):
+                    elif k.startswith('features'):
                         for ele in load_pretrain_layer_list:
                             layer_name = k.split('.')[1]
-                            if layer_name ==  ele:
-                                print('loading pretrianed named_parameters' + k)
+                            if layer_name == ele:
+                                print('loading pretrianed named_parameters:' + k)
                                 keys.append(k)
                             else:
                                 continue
+                    elif k.startswith('first_conv.') and 'first_conv' in load_pretrain_layer_list:
+                        keys.append(k)
+                        continue
                     else:
-                        print('loading pretrianed named_parameters' + k)
+                        print('loading pretrianed named_parameters:' + k)
                         keys.append(k)
             else:
                 # 全部参数
@@ -450,6 +453,9 @@ def main():
                             value.requires_grad = False
                         else:
                             continue
+                if name.startswith('first_conv.') and 'first_conv' in frozen_layer_list:
+                    print('frozne named_parameters:' + name)
+                    value.requires_grad = False
         # setup optimizer
         params = filter(lambda p: p.requires_grad, model.parameters())
         optimizer = torch.optim.Adam(params, lr=args.learning_rate, betas=(0.9, 0.999), eps=1e-08,
@@ -568,16 +574,16 @@ def get_args():
     parser.add_argument('--val_dir', type=str, default='data/SOD-SemanticDataset',
                         help='path to validation dataset')
     parser.add_argument('--fine_tune', type=bool, default=True, help='load pretrain weight at start')
-    parser.add_argument('--load_all_pretrain_weight', type=bool, default=True, help='load all pretrain weight at '
+    parser.add_argument('--load_all_pretrain_weight', type=bool, default=False, help='load all pretrain weight at '
                                                                                      'beginning')
     parser.add_argument('--load_pretrain_stage', type=list,
-                        default=["stage_one", "stage_two", "stage_three", "stage_four"], help='load pretrain weight '
+                        default=["first_conv", "stage_one", "stage_two", "stage_three", "stage_four"], help='load pretrain weight '
                                                                                               'at start, working at '
                                                                                               'load_all_pretrain_weight = false')
     parser.add_argument('--frozen_stage', type=list,
                         default=[], help='frozen weight')
     parser.add_argument('--droup_out_class_label', type=list,
-                        default=[0], help='training with drop out the class of images in dataset')
+                        default=[], help='training with drop out the class of images in dataset')
     parser.add_argument('--record_all_params_data', default=True,
                         help='record_all_params_data')
     args = parser.parse_args()
