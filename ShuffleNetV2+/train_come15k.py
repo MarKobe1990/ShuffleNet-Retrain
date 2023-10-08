@@ -366,10 +366,10 @@ def main():
 
     # init model
     architecture = [0, 0, 3, 1, 1, 1, 0, 0, 2, 0, 2, 1, 1, 0, 2, 0, 2, 1, 3, 2]
-    class_names = ['covering', 'device', 'domestic_animal', 'mater', 'person', 'plant', 'structure', 'vertebrate']
+    # class_names = ['covering', 'device', 'domestic_animal', 'mater', 'person', 'plant', 'structure', 'vertebrate']
     class_names_dic = {1: 'covering', 2: 'device', 3: 'domestic_animal', 4: 'mater', 5: 'person', 6: 'plant',
                        7: 'structure', 8: 'vertebrate'}
-    model = ShuffleNetV2_Plus(architecture=architecture, n_class=class_names.__len__(), model_size=args.model_size)
+    model = ShuffleNetV2_Plus(architecture=architecture, n_class=len(class_names_dic), model_size=args.model_size)
     pre_train_model_weight_dic = {
         'Small': 'shuffle_net_v2_plus_image1K_pretrianed_weight/ShuffleNetV2+.ImageNet1k_pre_trained_Small.pth.tar',
         'Medium': 'shuffle_net_v2_plus_image1K_pretrianed_weight/ShuffleNetV2+.ImageNet1k_pre_trained_Medium.pth.tar',
@@ -384,6 +384,7 @@ def main():
         pre_train_weight = torch.load(pre_train_model_weight_dic[args.model_size])
         if args.load_all_pretrain_weight:
             # 去掉分类层
+            print('loading all pretrianed imageNet weight')
             new_dict = copy_state_dict(pre_train_weight)
             keys = []
             for k, v in new_dict.items():
@@ -409,20 +410,28 @@ def main():
                         continue
                     if k.startswith('features'):
                         for ele in load_pretrain_layer_list:
-                            if k.startswith('features.' + ele):
+                            layer_name = k.split('.')[1]
+                            if layer_name ==  ele:
+                                print('loading pretrianed named_parameters' + k)
                                 keys.append(k)
                             else:
                                 continue
                     else:
+                        print('loading pretrianed named_parameters' + k)
                         keys.append(k)
             else:
+                # 全部参数
+                print('loading all pretrianed imageNet weight')
+                new_dict = copy_state_dict(pre_train_weight)
+                keys = []
                 for k, v in new_dict.items():
                     if k.startswith('classifier'):  # 将‘’开头的key过滤掉，这里是要去除的层的key
                         continue
+                    print('loading pretrianed named_parameters' + k)
                     keys.append(k)
-            new_dict = {k: new_dict[k] for k in keys}
-            state_dict = new_dict
-            model.load_state_dict(state_dict, strict=False)
+        new_dict = {k: new_dict[k] for k in keys}
+        state_dict = new_dict
+        model.load_state_dict(state_dict, strict=False)
         # 载入预训练模型参数后...
         # 冻结部分, 分stage
         frozen_stage_list = args.frozen_stage
@@ -433,9 +442,11 @@ def main():
                     frozen_layer_list.extend(v)
         if type(frozen_layer_list) == list and len(frozen_layer_list) != 0:
             for name, value in model.named_parameters():
-                if name.startswith('features'):
+                if name.startswith('features.'):
                     for ele in frozen_layer_list:
-                        if name.startswith('features.' + ele):
+                        layer_name = name.split('.')[1]
+                        if layer_name == ele:
+                            print('frozne named_parameters:' + name)
                             value.requires_grad = False
                         else:
                             continue
@@ -489,6 +500,12 @@ def main():
     total_iters = args.total_epoch * len(args.train_loader)
 
     writer = init_tb_writer_global(args)
+    try:
+        input_img_fake = torch.randn([1, 3, 320, 320])
+        input_img_fake = input_img_fake.to(device)
+        writer.add_graph(model, [input_img_fake])
+    except:
+        print("Draw model graph error")
     test_result_dic = {'best_easy_accuracy': 0, 'best_easy_accuracy_epoch': 0,
                        'best_hard_accuracy': 0, 'best_hard_accuracy_epoch': 0,
                        'best_avg_accuracy': 0, 'best_avg_accuracy_epoch': 0}
@@ -517,6 +534,13 @@ def main():
                                                  test_hard_accuracy=test_hard_accuracy, test_result_dic=test_result_dic)
         test_result_dic["epoch"] = epoch
         df_test_final_bset = df_test_final_bset._append(test_result_dic, ignore_index=True)
+        if args.record_all_params_data:
+            for name, param in model.named_parameters():
+                if param.grad is not None:
+                    df_train_log_all.add_histogram(tag=name + '_grad', values=param.grad,
+                                                                  global_step=epoch)
+                df_train_log_all.add_histogram(tag=name + '_data', values=param.data,
+                                                                  global_step=epoch)
     df_train_log_all.to_csv(args.save + '/log/' + '训练日志-训练集.csv', index=False)
     df_train_log_epoch.to_csv(args.save + '/log/' + '训练日志-epoch-训练集.csv', index=False)
     df_test_easy_log.to_csv(args.save + '/log/' + '训练日志-easy-测试集.csv', index=False)
@@ -541,7 +565,7 @@ def get_args():
                         help='size of the model')
     parser.add_argument('--train_dir', type=str, default='data/SOD-SemanticDataset',
                         help='path to training dataset')
-    parser.add_argument('--val_dir', type=str, dedefaultfault='data/SOD-SemanticDataset',
+    parser.add_argument('--val_dir', type=str, default='data/SOD-SemanticDataset',
                         help='path to validation dataset')
     parser.add_argument('--fine_tune', type=bool, default=True, help='load pretrain weight at start')
     parser.add_argument('--load_all_pretrain_weight', type=bool, default=True, help='load all pretrain weight at '
@@ -551,9 +575,11 @@ def get_args():
                                                                                               'at start, working at '
                                                                                               'load_all_pretrain_weight = false')
     parser.add_argument('--frozen_stage', type=list,
-                        default=["stage_one"], help='frozen weight')
+                        default=[], help='frozen weight')
     parser.add_argument('--droup_out_class_label', type=list,
-                        default=["covering"], help='training with drop out the class of images in dataset')
+                        default=[0], help='training with drop out the class of images in dataset')
+    parser.add_argument('--record_all_params_data', default=True,
+                        help='record_all_params_data')
     args = parser.parse_args()
     return args
 
