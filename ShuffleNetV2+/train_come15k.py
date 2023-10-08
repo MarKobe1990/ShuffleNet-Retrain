@@ -543,9 +543,9 @@ def main():
         if args.record_all_params_data:
             for name, param in model.named_parameters():
                 if param.grad is not None:
-                    df_train_log_all.add_histogram(tag=name + '_grad', values=param.grad,
+                    writer.add_histogram(tag=name + '_grad', values=param.grad,
                                                                   global_step=epoch)
-                df_train_log_all.add_histogram(tag=name + '_data', values=param.data,
+                writer.add_histogram(tag=name + '_data', values=param.data,
                                                                   global_step=epoch)
     df_train_log_all.to_csv(args.save + '/log/' + '训练日志-训练集.csv', index=False)
     df_train_log_epoch.to_csv(args.save + '/log/' + '训练日志-epoch-训练集.csv', index=False)
@@ -581,7 +581,7 @@ def get_args():
                                                                                               'at start, working at '
                                                                                               'load_all_pretrain_weight = false')
     parser.add_argument('--frozen_stage', type=list,
-                        default=[], help='frozen weight')
+                        default=["first_conv", "stage_one"], help='frozen weight')
     parser.add_argument('--droup_out_class_label', type=list,
                         default=[], help='training with drop out the class of images in dataset')
     parser.add_argument('--record_all_params_data', default=True,
