@@ -1,10 +1,12 @@
 import torch
 import torch.nn as nn
 from blocks import Shufflenet, Shuffle_Xception, HS, SELayer
+from torchvision import models
+from torchsummary import summary
 
 
 class ShuffleNetV2_Plus(nn.Module):
-    def __init__(self, input_size=224, n_class=8, architecture=None, model_size='Large'):
+    def __init__(self, input_size=224, n_class=1000, architecture=None, model_size='Large'):
         super(ShuffleNetV2_Plus, self).__init__()
 
         print('model size is ', model_size)
@@ -38,7 +40,7 @@ class ShuffleNetV2_Plus(nn.Module):
 
             activation = 'HS' if idxstage >= 1 else 'ReLU'
             useSE = 'True' if idxstage >= 2 else False
-
+            # architecture = [0, 0, 3, 1, 1, 1, 0, 0, 2, 0, 2, 1, 1, 0, 2, 0, 2, 1, 3, 2]
             for i in range(numrepeat):
                 if i == 0:
                     inp, outp, stride = input_channel, output_channel, 2
@@ -48,19 +50,19 @@ class ShuffleNetV2_Plus(nn.Module):
                 blockIndex = architecture[archIndex]
                 archIndex += 1
                 if blockIndex == 0:
-                    # print('Shuffle3x3')
+                    print('Shuffle3x3')
                     self.features.append(Shufflenet(inp, outp, base_mid_channels=outp // 2, ksize=3, stride=stride,
                                                     activation=activation, useSE=useSE))
                 elif blockIndex == 1:
-                    # print('Shuffle5x5')
+                    print('Shuffle5x5')
                     self.features.append(Shufflenet(inp, outp, base_mid_channels=outp // 2, ksize=5, stride=stride,
                                                     activation=activation, useSE=useSE))
                 elif blockIndex == 2:
-                    # print('Shuffle7x7')
+                    print('Shuffle7x7')
                     self.features.append(Shufflenet(inp, outp, base_mid_channels=outp // 2, ksize=7, stride=stride,
                                                     activation=activation, useSE=useSE))
                 elif blockIndex == 3:
-                    # print('Xception')
+                    print('Xception')
                     self.features.append(Shuffle_Xception(inp, outp, base_mid_channels=outp // 2, stride=stride,
                                                           activation=activation, useSE=useSE))
                 else:
@@ -126,9 +128,7 @@ class ShuffleNetV2_Plus(nn.Module):
 
 if __name__ == "__main__":
     architecture = [0, 0, 3, 1, 1, 1, 0, 0, 2, 0, 2, 1, 1, 0, 2, 0, 2, 1, 3, 2]
-    model = ShuffleNetV2_Plus(architecture=architecture)
+    model = ShuffleNetV2_Plus(architecture=architecture,model_size='Small')
     # print(model)
-
-    test_data = torch.rand(5, 3, 224, 224)
-    test_outputs = model(test_data)
-    print(test_outputs.size())
+    model.cuda()
+    summary(model, (3, 224, 224))
