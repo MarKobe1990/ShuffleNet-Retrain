@@ -5,9 +5,13 @@ Created on Sat Nov 18 23:12:08 2017
 """
 import os
 import numpy as np
-
+import cv2
+import matplotlib.pyplot as plt
+import torchvision.utils as utils
+import torchvision.transforms as transforms
 import torch
 from torch.optim import Adam
+
 from torchvision import models
 
 from misc_functions import preprocess_image, recreate_image, save_image
@@ -18,9 +22,12 @@ class CNNLayerVisualization():
         Produces an image that minimizes the loss of a convolution
         operation for a specific layer and filter
     """
-    def __init__(self, model, selected_layer, selected_filter):
+
+    def __init__(self, stage, model, selected_module, selected_layer, selected_filter):
         self.model = model
         self.model.eval()
+        self.stage = stage
+        self.selected_module = selected_module
         self.selected_layer = selected_layer
         self.selected_filter = selected_filter
         self.conv_output = 0
@@ -32,6 +39,7 @@ class CNNLayerVisualization():
         def hook_function(module, grad_in, grad_out):
             # Gets the conv output of the selected filter (from selected layer)
             self.conv_output = grad_out[0, self.selected_filter]
+
         # Hook the selected layer
         self.model[self.selected_layer].register_forward_hook(hook_function)
 
@@ -48,13 +56,22 @@ class CNNLayerVisualization():
             optimizer.zero_grad()
             # Assign create image to a variable to move forward in the model
             x = processed_image
-            for index, layer in enumerate(self.model):
+            for index, layer in enumerate(self.model.first_conv):
                 # Forward pass layer by layer
                 # x is not used after this point because it is only needed to trigger
                 # the forward hook function
                 x = layer(x)
                 # Only need to forward until the selected layer is reached
-                if index == self.selected_layer:
+                if self.selected_module == 'first_conv' and index == self.selected_layer:
+                    # (forward hook function triggered)
+                    break
+            for index, layer in enumerate(self.model.features):
+                # Forward pass layer by layer
+                # x is not used after this point because it is only needed to trigger
+                # the forward hook function
+                x = layer(x)
+                # Only need to forward until the selected layer is reached
+                if self.selected_module == 'features' and index == self.selected_layer:
                     # (forward hook function triggered)
                     break
             # Loss function is the mean of the output of the selected layer/filter
@@ -68,9 +85,9 @@ class CNNLayerVisualization():
             # Recreate image
             self.created_image = recreate_image(processed_image)
             # Save image
-            if i % 5 == 0:
-                im_path = './generated/layer_vis_l' + str(self.selected_layer) + \
-                    '_f' + str(self.selected_filter) + '_iter' + str(i) + '.jpg'
+            if i % 30 == 0:
+                im_path = './generated/' + self.stage + '_layer_vis_m' + str(self.selected_module) + '_l' + str(self.selected_layer) + \
+                          '_f' + str(self.selected_filter) + '_iter' + str(i) + '.jpg'
                 save_image(self.created_image, im_path)
 
     def visualise_layer_without_hooks(self):
@@ -85,10 +102,17 @@ class CNNLayerVisualization():
             optimizer.zero_grad()
             # Assign create image to a variable to move forward in the model
             x = processed_image
-            for index, layer in enumerate(self.model):
+            for index, layer in enumerate(self.model.first_conv):
                 # Forward pass layer by layer
                 x = layer(x)
-                if index == self.selected_layer:
+                if self.selected_module == 'first_conv' and index == self.selected_layer:
+                    # Only need to forward until the selected layer is reached
+                    # Now, x is the output of the selected layer
+                    break
+            for index, layer in enumerate(self.model.features):
+                # Forward pass layer by layer
+                x = layer(x)
+                if self.selected_module == 'features' and index == self.selected_layer:
                     # Only need to forward until the selected layer is reached
                     # Now, x is the output of the selected layer
                     break
@@ -109,36 +133,51 @@ class CNNLayerVisualization():
             # Recreate image
             self.created_image = recreate_image(processed_image)
             # Save image
-            if i % 5 == 0:
-                im_path = './generated/layer_vis_l' + str(self.selected_layer) + \
-                    '_f' + str(self.selected_filter) + '_iter' + str(i) + '.jpg'
+            if i % 30 == 0:
+                im_path = './generated/' + self.stage + '_layer_vis_l' + str(self.selected_layer) + \
+                          '_f' + str(self.selected_filter) + '_iter' + str(i) + '.jpg'
                 save_image(self.created_image, im_path)
+                return self.created_image
 
 
 if __name__ == '__main__':
-    model_path = './models/2023-10-09-01-47_max_epoch_100/'
+    model_path = '../models/2023-10-09-01-47_max_epoch_100/'
     model_name = 'retrain_COME15K_checkpoint-best-avg-0.743-Medium.pth.tar'
     # init model
     model_and_weight_path = model_path + model_name
     shuffleNetV2PLUS = torch.load(model_and_weight_path)
-
-    cnn_layer = 17
-    filter_pos = 5
+    shuffleNetV2PLUS.to('cpu')
+    pretrained_model = shuffleNetV2PLUS
+    selected_module = 'features'
+    stage = 'stage_four'
+    stage_list = {"first_conv": [0, 16], "stage_one": [3, 48], "stage_two": [7, 128], "stage_three": [15, 256],
+                  "stage_four": [19, 512]}
+    cnn_layer = stage_list[stage][0]
+    # filter_pos = 5
     # Fully connected layer is not needed
-    pretrained_model = shuffleNetV2PLUS.features
-    layer_vis = CNNLayerVisualization(pretrained_model, cnn_layer, filter_pos)
+    # all filter
+    img_np_list = []
+    img_tensor_list = []
+    for filter_pos in range(0, stage_list[stage][1]):
+        layer_vis = CNNLayerVisualization(stage, pretrained_model, selected_module, cnn_layer, filter_pos)
+        # Layer visualization with pytorch hooks
+        # layer_vis.visualise_layer_with_hooks()
 
-    # Layer visualization with pytorch hooks
-    # layer_vis.visualise_layer_with_hooks()
-
-    # Layer visualization without pytorch hooks
-    layer_vis.visualise_layer_without_hooks()
-
+        # Layer visualization without pytorch hooks
+        created_image = layer_vis.visualise_layer_without_hooks()
+        img_np_list.append(created_image)
+    for img_np in img_np_list:
+        img_tensor = transforms.ToTensor()(img_np).unsqueeze(dim=0)
+        img_tensor_list.append(img_tensor)
+    image_grid = utils.make_grid(torch.cat(img_tensor_list, dim=0), int(stage_list[stage][1] / 4)).clone().detach().to(torch.device('cpu'))
+    im_path = './generated/' + stage + '_layer_vis_m' + str(selected_module) + '_l' + str(cnn_layer) + \
+              '_ALL_filter' + '_iter' + str(30) + '.jpg'
+    utils.save_image(image_grid, im_path)
     # cnn_layer = 17
     # filter_pos = 5
     # # Fully connected layer is not needed
     # pretrained_model = models.vgg16(pretrained=True).features
-    # layer_vis = CNNLayerVisualization(pretrained_model, cnn_layer, filter_pos)
+    # layer_vis = CNNLayerVisualization(pretrained_model, selected_module,cnn_layer, filter_pos)
 
     # Layer visualization with pytorch hooks
     # layer_vis.visualise_layer_with_hooks()
