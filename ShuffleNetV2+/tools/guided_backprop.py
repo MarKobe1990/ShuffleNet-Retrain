@@ -29,7 +29,7 @@ class GuidedBackprop():
         def hook_function(module, grad_in, grad_out):
             self.gradients = grad_in[0]
         # Register hook to the first layer
-        first_layer = list(self.model.features._modules.items())[0][1]
+        first_layer = list(self.model._modules.items())[0][1][0]
         first_layer.register_backward_hook(hook_function)
 
     def update_relus(self):
@@ -57,9 +57,11 @@ class GuidedBackprop():
 
         # Loop through layers, hook up ReLUs
         for pos, module in self.model.features._modules.items():
-            if isinstance(module, ReLU):
-                module.register_backward_hook(relu_backward_hook_function)
-                module.register_forward_hook(relu_forward_hook_function)
+            for stage_pos, stage in module._modules.items():
+                for function_pos, function in stage._modules.items():
+                    if isinstance(function, ReLU):
+                        function.register_backward_hook(relu_backward_hook_function)
+                        function.register_forward_hook(relu_forward_hook_function)
 
     def generate_gradients(self, input_image, target_class):
         # Forward pass

@@ -68,8 +68,8 @@ if __name__ == '__main__':
         # Grad cam
         selected_module = 'features'
         stage = 'stage_four'
-        stage_list = {"first_conv": [0, 16], "stage_one": [3, 48], "stage_two": [7, 128], "stage_three": [15, 256],
-                      "stage_four": [19, 512]}
+        stage_list = {"first_conv": 0, "stage_one": 3, "stage_two": 7, "stage_three": 15,
+                      "stage_four": 19}
         target_stage_attr = stage_list.get(stage)
         gcv2 = GradCam(pretrained_model, selected_module, target_stage_attr)
         # Generate cam mask
@@ -81,8 +81,7 @@ if __name__ == '__main__':
         # Get gradients
         guided_grads = GBP.generate_gradients(prep_img, target_class)
         print('Guided backpropagation completed')
-        # file_name_to_export = img_path[img_path.rfind('/')+1:img_path.rfind('.')]
-        file_name_to_export = '1'
+        file_name_to_export = image_path[image_path.rfind('/')+1:image_path.rfind('.')]
         # Guided Grad cam
         cam_gb = guided_grad_cam(cam, guided_grads)
         save_gradient_images(cam_gb, file_name_to_export + '_GGrad_Cam')
