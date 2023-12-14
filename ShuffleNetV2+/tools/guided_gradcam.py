@@ -31,7 +31,7 @@ def guided_grad_cam(grad_cam_mask, guided_backprop_mask):
 
 if __name__ == '__main__':
     # 有 GPU 就用 GPU，没有就用 CPU
-    device = torch.device('cpu')
+    device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
     dataset_dir = '../data/SOD-SemanticDataset-OriginalSize'
     dataset_attr_word = 'test_hard'
 
