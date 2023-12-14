@@ -375,66 +375,69 @@ def main():
         'Medium': 'shuffle_net_v2_plus_image1K_pretrianed_weight/ShuffleNetV2+.ImageNet1k_pre_trained_Medium.pth.tar',
         'Large': 'shuffle_net_v2_plus_image1K_pretrianed_weight/ShuffleNetV2+.ImageNet1k_pre_trained_Large.pth.tar'
     }
+    layer_dic = {"stage_one": ['0', '1', '2', '3'], "stage_two": ['4', '5', '6', '7'],
+                         "stage_three": ['8', '9', '10', '11', '12', '13', '14', '15'],
+                         "stage_four": ['16', '17', '18', '19'], "first_conv": ['first_conv']}
     # shuffleNetV2+ 主干网络分四个stage
     if args.fine_tune:
-        layer_dic = {"stage_one": ['0', '1', '2', '3'], "stage_two": ['4', '5', '6', '7'],
-                     "stage_three": ['8', '9', '10', '11', '12', '13', '14', '15'],
-                     "stage_four": ['16', '17', '18', '19'], "first_conv": ['first_conv']}
-        # 载入四个阶段
-        pre_train_weight = torch.load(pre_train_model_weight_dic[args.model_size])
-        if args.load_all_pretrain_weight:
-            # 去掉分类层
-            print('loading all pretrianed imageNet weight')
-            new_dict = copy_state_dict(pre_train_weight)
-            keys = []
-            for k, v in new_dict.items():
-                if k.startswith('classifier'):  # 将‘’开头的key过滤掉，这里是要去除的层的key
-                    continue
-                keys.append(k)
-            # new_dict = {k: new_dict[k] for k in keys}
-            # state_dict = new_dict
-            # model.load_state_dict(state_dict, strict=False)
-        else:
-            load_pretrain_stage_list = args.load_pretrain_stage
-            load_pretrain_layer_list = []
-            for load_pretrain_stage_ele in load_pretrain_stage_list:
-                for k, v in layer_dic.items():
-                    if k == load_pretrain_stage_ele:
-                        load_pretrain_layer_list.extend(v)
-            new_dict = copy_state_dict(pre_train_weight)
-            keys = []
-            if type(load_pretrain_layer_list) == list and len(load_pretrain_layer_list) != 0:
-                # 只留下指定的层
-                for k, v in new_dict.items():
-                    if k.startswith('classifier'):  # 将‘’开头的key过滤掉，这里是要去除分类层
-                        continue
-                    elif k.startswith('features'):
-                        for ele in load_pretrain_layer_list:
-                            layer_name = k.split('.')[1]
-                            if layer_name == ele:
-                                print('loading pretrianed named_parameters:' + k)
-                                keys.append(k)
-                            else:
-                                continue
-                    elif k.startswith('first_conv.') and 'first_conv' in load_pretrain_layer_list:
-                        keys.append(k)
-                        continue
-                    else:
-                        print('loading pretrianed named_parameters:' + k)
-                        keys.append(k)
-            else:
-                # 全部参数
+        if args.fine_tune_model is None:
+            # 载入四个阶段
+            pre_train_weight = torch.load(pre_train_model_weight_dic[args.model_size])
+            if args.load_all_pretrain_weight:
+                # 去掉分类层
                 print('loading all pretrianed imageNet weight')
                 new_dict = copy_state_dict(pre_train_weight)
                 keys = []
                 for k, v in new_dict.items():
                     if k.startswith('classifier'):  # 将‘’开头的key过滤掉，这里是要去除的层的key
                         continue
-                    print('loading pretrianed named_parameters' + k)
                     keys.append(k)
-        new_dict = {k: new_dict[k] for k in keys}
-        state_dict = new_dict
-        model.load_state_dict(state_dict, strict=False)
+                # new_dict = {k: new_dict[k] for k in keys}
+                # state_dict = new_dict
+                # model.load_state_dict(state_dict, strict=False)
+            else:
+                load_pretrain_stage_list = args.load_pretrain_stage
+                load_pretrain_layer_list = []
+                for load_pretrain_stage_ele in load_pretrain_stage_list:
+                    for k, v in layer_dic.items():
+                        if k == load_pretrain_stage_ele:
+                            load_pretrain_layer_list.extend(v)
+                new_dict = copy_state_dict(pre_train_weight)
+                keys = []
+                if type(load_pretrain_layer_list) == list and len(load_pretrain_layer_list) != 0:
+                    # 只留下指定的层
+                    for k, v in new_dict.items():
+                        if k.startswith('classifier'):  # 将‘’开头的key过滤掉，这里是要去除分类层
+                            continue
+                        elif k.startswith('features'):
+                            for ele in load_pretrain_layer_list:
+                                layer_name = k.split('.')[1]
+                                if layer_name == ele:
+                                    print('loading pretrianed named_parameters:' + k)
+                                    keys.append(k)
+                                else:
+                                    continue
+                        elif k.startswith('first_conv.') and 'first_conv' in load_pretrain_layer_list:
+                            keys.append(k)
+                            continue
+                        else:
+                            print('loading pretrianed named_parameters:' + k)
+                            keys.append(k)
+                else:
+                    # 全部参数
+                    print('loading all pretrianed imageNet weight')
+                    new_dict = copy_state_dict(pre_train_weight)
+                    keys = []
+                    for k, v in new_dict.items():
+                        if k.startswith('classifier'):  # 将‘’开头的key过滤掉，这里是要去除的层的key
+                            continue
+                        print('loading pretrianed named_parameters' + k)
+                        keys.append(k)
+            new_dict = {k: new_dict[k] for k in keys}
+            state_dict = new_dict
+            model.load_state_dict(state_dict, strict=False)
+        else:
+            model = torch.load(args.fine_tune_model)
         # 载入预训练模型参数后...
         # 冻结部分, 分stage
         frozen_stage_list = args.frozen_stage
@@ -574,6 +577,9 @@ def get_args():
     parser.add_argument('--val_dir', type=str, default='data/SOD-SemanticDataset',
                         help='path to validation dataset')
     parser.add_argument('--fine_tune', type=bool, default=True, help='load pretrain weight at start')
+    parser.add_argument('--fine_tune_model', type=str,
+                        default='./SOD-model/model-retrained-frozen-123-epoch-77.pth.tar',
+                        help='load pretrain weight at start')
     parser.add_argument('--load_all_pretrain_weight', type=bool, default=False, help='load all pretrain weight at '
                                                                                      'beginning')
     parser.add_argument('--load_pretrain_stage', type=list,
@@ -581,7 +587,7 @@ def get_args():
                                                                                               'at start, working at '
                                                                                               'load_all_pretrain_weight = false')
     parser.add_argument('--frozen_stage', type=list,
-                        default=["first_conv", "stage_one"], help='frozen weight')
+                        default=["first_conv", "stage_one", "stage_two", "stage_three", "stage_four"], help='frozen weight')
     parser.add_argument('--droup_out_class_label', type=list,
                         default=[], help='training with drop out the class of images in dataset')
     parser.add_argument('--record_all_params_data', default=True,
