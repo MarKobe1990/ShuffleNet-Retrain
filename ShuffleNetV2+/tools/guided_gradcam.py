@@ -69,7 +69,7 @@ if __name__ == '__main__':
         file_name_to_export = image_path[image_path.rfind('/') + 1:image_path.rfind('.')]
         # Grad cam
         selected_module = 'features'
-        stage = 'stage_four'
+        stage = 'stage_three'
         stage_list = {"first_conv": 0, "stage_one": 3, "stage_two": 7, "stage_three": 15,
                       "stage_four": 19}
         target_stage_attr = stage_list.get(stage)
@@ -91,7 +91,8 @@ if __name__ == '__main__':
         grayscale_cam_gb = convert_to_grayscale(cam_gb)
         save_gradient_images(grayscale_cam_gb, file_path, file_name_to_export + '_GGrad_Cam_gray')
         print('Guided grad cam completed')
-
+        if idx % 10 == 0:
+            torch.cuda.empty_cache()
     # # Grad cam
     # gcv2 = GradCam(pretrained_model, target_layer=11)
     # # Generate cam mask

@@ -32,13 +32,15 @@ class CamExtractor():
             if module_pos == 'first_conv':
                     x = module(x)
                     stage_pos = 0
+                    if int(stage_pos) == int(self.target_stage_attr) and module_pos == self.selected_module:
+                        x.register_hook(self.save_gradient)
+                        conv_output = x  # Save the convolution output on that layer
             elif module_pos == 'features':
                 for stage_pos, stage in module._modules.items():
                     x = stage(x)
-            # Forward
-            if int(stage_pos) == int(self.target_stage_attr) and module_pos == self.selected_module:
-                    x.register_hook(self.save_gradient)
-                    conv_output = x  # Save the convolution output on that layer
+                    if int(stage_pos) == int(self.target_stage_attr) and module_pos == self.selected_module:
+                        x.register_hook(self.save_gradient)
+                        conv_output = x  # Save the convolution output on that layer
         return conv_output, x
 
     def forward_pass(self, x):
