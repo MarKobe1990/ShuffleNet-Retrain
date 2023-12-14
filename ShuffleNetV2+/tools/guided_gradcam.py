@@ -30,8 +30,10 @@ def guided_grad_cam(grad_cam_mask, guided_backprop_mask):
 
 
 if __name__ == '__main__':
+    # 有 GPU 就用 GPU，没有就用 CPU
+    device = torch.device('cpu')
     dataset_dir = '../data/SOD-SemanticDataset-OriginalSize'
-    dataset_attr_word = 'test_easy'
+    dataset_attr_word = 'test_hard'
 
     # dataset_attr = class_txt_path_dic.get(dataset_attr_word)
     model_path = '../models/2023-10-09-01-47_max_epoch_100/'
@@ -39,7 +41,7 @@ if __name__ == '__main__':
     # init model
     model_and_weight_path = model_path + model_name
     shuffleNetV2PLUS = torch.load(model_and_weight_path)
-    shuffleNetV2PLUS.to('cpu')
+    shuffleNetV2PLUS.to(device)
     pretrained_model = shuffleNetV2PLUS
 
     class_txt_path_dic = {
@@ -63,7 +65,7 @@ if __name__ == '__main__':
         # Read image
         original_image = Image.open(image_path).convert('RGB')
         # Process image
-        prep_img = preprocess_image(original_image)
+        prep_img = preprocess_image(original_image).to(device)
         file_name_to_export = image_path[image_path.rfind('/') + 1:image_path.rfind('.')]
         # Grad cam
         selected_module = 'features'
