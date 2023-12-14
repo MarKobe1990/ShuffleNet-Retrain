@@ -34,21 +34,22 @@ def convert_to_grayscale(im_as_arr):
     return grayscale_im
 
 
-def save_gradient_images(gradient, file_name):
+def save_gradient_images(gradient, file_path, file_name):
     """
         Exports the original gradient image
 
     Args:
         gradient (np arr): Numpy array of the gradient with shape (3, 224, 224)
         file_name (str): File name to be exported
+        file_path (str): File path to be exported
     """
-    if not os.path.exists('../results'):
-        os.makedirs('../results')
+    if not os.path.exists('../results/' + file_path):
+        os.makedirs('../results/' + file_path)
     # Normalize
     gradient = gradient - gradient.min()
     gradient /= gradient.max()
     # Save image
-    path_to_file = os.path.join('../results', file_name + '.png')
+    path_to_file = os.path.join('../results/' + file_path + '/', file_name + '.png')
     save_image(gradient, path_to_file)
 
 

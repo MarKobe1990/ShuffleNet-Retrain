@@ -81,12 +81,13 @@ if __name__ == '__main__':
         # Get gradients
         guided_grads = GBP.generate_gradients(prep_img, target_class)
         print('Guided backpropagation completed')
+        file_path = selected_module + '_' + stage + '/' + dataset_attr_word
         file_name_to_export = image_path[image_path.rfind('/')+1:image_path.rfind('.')]
         # Guided Grad cam
         cam_gb = guided_grad_cam(cam, guided_grads)
-        save_gradient_images(cam_gb, file_name_to_export + '_GGrad_Cam')
+        save_gradient_images(cam_gb, file_path, file_name_to_export + '_GGrad_Cam')
         grayscale_cam_gb = convert_to_grayscale(cam_gb)
-        save_gradient_images(grayscale_cam_gb, file_name_to_export + '_GGrad_Cam_gray')
+        save_gradient_images(grayscale_cam_gb, file_path, file_name_to_export + '_GGrad_Cam_gray')
         print('Guided grad cam completed')
 
     # # Grad cam
