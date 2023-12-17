@@ -33,12 +33,15 @@ if __name__ == '__main__':
     # 有 GPU 就用 GPU，没有就用 CPU
     device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
     dataset_dir = '../data/SOD-SemanticDataset-OriginalSize'
-    dataset_attr_word = 'test_hard'
-    # dataset_attr_word = 'test_easy'
+    dataset_attr_word = 'test_easy'
+    # dataset_attr_word = 'test_hard'
 
     # dataset_attr = class_txt_path_dic.get(dataset_attr_word)
     model_path = '../models/2023-10-09-01-47_max_epoch_100/'
     model_name = 'retrain_COME15K_checkpoint-best-avg-0.743-Medium.pth.tar'
+
+    # model_path = '../models/2023-12-14-17:59_max_epoch_100/'
+    # model_name = 'retrain_COME15K_checkpoint-best-avg-0.544-Medium.pth.tar'
     # init model
     model_and_weight_path = model_path + model_name
     shuffleNetV2PLUS = torch.load(model_and_weight_path)
@@ -70,9 +73,10 @@ if __name__ == '__main__':
         file_name_to_export = image_path[image_path.rfind('/') + 1:image_path.rfind('.')]
         # Grad cam
         selected_module = 'features'
-        stage = 'first_conv'
+        # selected_module = 'first_conv'
+        stage = 'stage_four'
         stage_list = {"first_conv": 0, "stage_one": 3, "stage_two": 7, "stage_three": 15,
-                      "stage_three": 19}
+                      "stage_four": 19}
         target_stage_attr = stage_list.get(stage)
         gcv2 = GradCam(pretrained_model, selected_module, target_stage_attr)
         # Generate cam mask
@@ -94,7 +98,6 @@ if __name__ == '__main__':
         print('Guided grad cam completed')
         if idx % 10 == 0:
             torch.cuda.empty_cache()
-            torch.cuda.empty_cache(device=torch.device("cpu"))
     # # Grad cam
     # gcv2 = GradCam(pretrained_model, target_layer=11)
     # # Generate cam mask
